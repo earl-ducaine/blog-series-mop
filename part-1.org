@@ -1,0 +1,11 @@
+
+
+
+
+Introduction
+
+* Some words about introspection, graphic objects, lisp machines and lisp.
+* Equivelence of to other reflection.
+* Bootstapping knowlege, precision in terminology
+* packageless NODE inspired object system
+* semantic object oreriented approach (hierarchies code highly separate)
