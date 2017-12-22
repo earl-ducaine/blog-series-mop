@@ -1,0 +1,9 @@
+
+
+
+
+This is the text and source code for the Blog Series I'm writing
+(wrote) on Common Lisp Meta Object Protocol, the technology that
+underpins CL's object system: CLOS.
+
+All text and code is under the MIT license agreement.  

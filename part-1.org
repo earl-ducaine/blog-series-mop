@@ -4,6 +4,19 @@
 
 Introduction
 
+* Part 1 -- Overview
+
+** Introspection
+
+** Graphic Objects
+
+** Lisp Machines
+
+** Graphic Languages
+
+** Object Oriented Terminology
+
+
 * Some words about introspection, graphic objects, lisp machines and lisp.
 * Equivelence of to other reflection.
 * Bootstapping knowlege, precision in terminology

@@ -1,0 +1,10 @@
+
+
+
+
+
+
+* Post 2 -- Equivelence of to other reflection.
+* Post 3 -- Bootstapping knowlege, precision in terminology
+* Post 4 -- packageless NODE inspired object system
+* Post 5 -- semantic object oreriented approach (hierarchies code highly separate)
