@@ -1,0 +1,506 @@
+;;; -*- Mode:gate; Fonts:(HL12 HL12I HL12B CPTFONTB HL12BI HL12B HL12I ) -*-
+
+
+=Node: Flavor Families
+
+=Text:
+FLAVOR FAMILIES
+
+     The following organization conventions are recommended for programs that use flavors.
+
+     A base flavor is a flavor that defines a whole family of related flavors, all of which have that
+base flavor as a component.  Typically the base flavor includes things relevant to the whole family,
+such as instance variables, :required-methods and :required-instance-variables declarations, default
+methods for certain operations, :method-combination declarations, and documentation on the general
+protocols and conventions of the family.  Some base flavors are complete and can be instantiated,
+but most are not instantiatable and merely serve as a base upon which to build other flavors.  The
+base flavor for the foo family is often named basic-foo.
+
+     A mixin flavor is a flavor that defines one particular feature of an object.  A mixin cannot be
+instantiated, because it is not a complete description.  Each module or feature of a program is
+defined as a separate mixin; a usable flavor can be constructed by choosing the mixins for the
+desired characteristics and combining them, along with the appropriate base flavor.  By organizing
+your flavors this way, you keep separate features in separate flavors, and you can pick and choose
+among them.  Sometimes the order of combining mixins does not matter, but often it does, because
+the order of flavor combination controls the order in which daemons are invoked and wrappers are
+wrapped.  Such order dependencies should be documented as part of the conventions of the
+appropriate family of flavors.  A mixin flavor that provides the mumble feature is often named
+mumble-mixin.
+
+     If you are writing a program that uses someone else's facility to do something, using that
+facility's flavors and methods, your program may still define its own flavors, in a simple way.  The
+facility provides a base flavor and a set of mixins:  the caller can combine these in various ways
+depending on exactly what it wants, since the facility probably does not provide all possible useful
+combinations.  Even if your private flavor has exactly the same components as a pre-existing flavor,
+it can still be useful since you can use its :default-init-plist (see (FLAVOR-3)Defflavor Options)
+to select options of its component flavors and you can define one or two methods to customize it
+``just a little''.
+
+=Node: Vanilla Flavor
+
+=Text:
+VANILLA FLAVOR
+
+     The operations described in this section are a standard protocol, which all message-receiving
+objects are assumed to understand.  The standard methods that implement this protocol are
+automatically supplied by the flavor system unless the user specifically tells it not to do so.  These
+methods are associated with the flavor si:vanilla-flavor:
+
+si:vanilla-flavor                                                                            Flavor        
+        Unless you specify otherwise (with the :no-vanilla-flavor option to defflavor), every flavor
+        includes the ``vanilla'' flavor, which has no instance variables but provides some basic useful
+        methods.  
+
+:print-self stream prindepth escape-p                                                 Operation        
+        The object should output its printed-representation to a stream.  The printer sends this
+        message when it encounters an instance or an entity.  The arguments are the stream, the
+        current depth in list-structure (for comparison with prinlevel), and whether escaping is enabled
+        (a copy of the value of *print-escape*; see (READPRINT-1)Options that Control Printing).
+        si:vanilla-flavor ignores the last two arguments and prints something like #<flavor-name
+        octal-address>.  The flavor-name tells you what type of object it is and the octal-address
+        allows you to tell different objects apart (provided the garbage collector doesn't move them
+        behind your back).  
+
+:describe                                                                                    Operation        
+        The object should describe itself, printing a description onto the *standard-output* stream.
+        The describe function sends this message when it encounters an instance.  si:vanilla-flavor
+        outputs in a reasonable format the object, the name of its flavor, and the names and values
+        of its instance-variables.  
+
+:set keyword value                                                                          Operation        
+        The object should set the internal value specified by keyword to the new value value.  For
+        flavor instances, the :set operation uses :case method combination, and a method is generated
+        automatically to set each settable instance variable, with keyword being the variable's name as
+        a keyword.  
+
+:which-operations                                                                        Operation        
+        The object should return a list of the operations it can handle.  si:vanilla-flavor generates the
+        list once per flavor and remembers it, minimizing consing and compute-time.  If the set of
+        operations handled is changed, this list is regenerated the next time someone asks for it.  
+
+:operation-handled-p operation                                                        Operation        
+        operation is an operation name.  The object should return t if it has a handler for the
+        specified operation, nil if it does not.  
+
+:get-handler-for operation                                                              Operation        
+        operation is an operation name.  The object should return the method it uses to handle
+        operation.  If it has no handler for that operation, it should return nil.  This is like the
+        get-handler-for function (see (FLAVOR-2)Flavor Functions), but, of course, you can use
+        it only on objects known to accept messages.  
+
+:send-if-handles operation &rest arguments                                          Operation        
+        operation is an operation name and arguments is a list of arguments for the operation.  If the
+        object handles the operation, it should send itself a message with that operation and
+        arguments, and return whatever values that message returns.  If it doesn't handle the
+        operation it should just return nil.  
+
+:eval-inside-yourself form                                                            Operation        
+        The argument is a form that is evaluated in an environment in which special variables with the
+        names of the instance variables are bound to the values of the instance variables.  It works
+        to setq one of these special variables; the instance variable is modified.  This is intended to
+        be used mainly for debugging.  
+
+:funcall-inside-yourself function &rest args                                      Operation        
+        function is applied to args in an environment in which special variables with the names of the
+        instance variables are bound to the values of the instance variables.  It works to setq one of
+        these special variables; the instance variable is modified.  This is a way of allowing callers to
+        provide actions to be performed in an environment set up by the instance.  
+
+:break                                                                                         Operation        
+        break is called in an environment in which special variables with the names of the instance
+        variables are bound to the values of the instance variables.  
+
+=Node: Method Combination
+
+=Text:
+METHOD COMBINATION
+
+     When a flavor has or inherits more than one method for an operation, they must be called in a
+specific sequence.  The flavor system creates a function called a combined method which calls all
+the user-specified methods in the proper order.  Invocation of the operation actually calls the
+combined method, which is responsible for calling the others.
+
+     For example, if the flavor foo has components and methods as follows:
+
+        (defflavor foo () (foo-mixin foo-base))
+        (defflavor foo-mixin () (bar-mixin))
+
+        (defmethod (foo :before :hack) ...)
+        (defmethod (foo :after :hack) ...)
+
+        (defmethod (foo-mixin :before :hack) ...)
+        (defmethod (foo-mixin :after :hack) ...)
+
+        (defmethod (bar-mixin :before :hack) ...)
+        (defmethod (bar-mixin :hack) ...)
+
+        (defmethod (foo-base :hack) ...)
+        (defmethod (foo-base :after :hack) ...)
+
+then the combined method generated looks like this (ignoring many important details not related to
+this issue):
+
+        (defmethod (foo :combined :hack) (&rest args)
+          (apply #'(:method foo :before :hack) args)
+          (apply #'(:method foo-mixin :before :hack) args)
+          (apply #'(:method bar-mixin :before :hack) args)
+          (multiple-value-prog1
+              (apply #'(:method bar-mixin :hack) args)
+            (apply #'(:method foo-base :after :hack) args)
+            (apply #'(:method foo-mixin :after :hack) args)
+            (apply #'(:method foo :after :hack) args)))
+
+     This example shows the default style of method combination, the one described in the
+introductory parts of this chapter, called :daemon combination.  Each style of method combination
+defines which method types it allows, and what they mean.  :daemon combination accepts method
+types :before and :after, in addition to untyped methods; then it creates a combined method which
+calls all the :before methods, only one of the untyped methods, and then all the :after methods,
+returning the value of the untyped method.  The combined method is constructed by a function much
+like a macro's expander function, and the precise technique used to create the combined method is
+what gives :before and :after their meaning.
+
+     Note that the :before methods are called in the order foo, foo-mixin, bar-mixin and foo-base.
+(foo-base does not have a :before method, but if it had one that one would be last.) This is the
+standard ordering of the components of the flavor foo (see (FLAVOR-2)Mixing Flavors); since it
+puts the base flavor last, it is called :base-flavor-last ordering.  The :after methods are called in the
+opposite order, in which the base flavor comes first.  This is called :base-flavor-first ordering.
+
+     Only one of the untyped methods is used; it is the one that comes first in :base-flavor-last
+ordering.  An untyped method used in this way is called a primary method.
+
+     Other styles of method combination define their own method types and have their own ways of
+combining them.  Use of another style of method combination is requested with the
+:method-combination option to defflavor (see (FLAVOR-3)Defflavor Options).  Here is an example
+which uses :list method combination, a style of combination that allows :list methods and untyped
+methods:
+
+        (defflavor foo () (foo-mixin foo-base))
+        (defflavor foo-mixin () (bar-mixin))
+        (defflavor foo-base () ()
+          (:method-combination (:list :base-flavor-last :win)))
+
+        (defmethod (foo :list :win) ...)
+        (defmethod (foo :win) ...)
+
+        (defmethod (foo-mixin :list :win) ...)
+
+        (defmethod (bar-mixin :list :win) ...)
+        (defmethod (bar-mixin :win) ...)
+
+        (defmethod (foo-base :win) ...)
+
+yielding the combined method
+        (defmethod (foo :combined :win) (&rest args)
+          (list
+            (apply #'(:method foo :list :win) args)
+            (apply #'(:method foo-mixin :list :win) args)
+            (apply #'(:method bar-mixin :list :win) args)
+            (apply #'(:method foo :win) args)
+            (apply #'(:method bar-mixin :win) args)
+            (apply #'(:method foo-base :win) args)))
+
+     The :method-combination option in the defflavor for foo-base causes :list method combination to
+be used for the :win operation on all flavors that have foo-base as a component, including foo.  The
+result is a combined method which calls all the methods, including all the untyped methods rather than
+just one, and makes a list of the values they return.  All the :list methods are called first, followed by
+all the untyped methods; and within each type, the :base-flavor-last ordering is used as specified.  If
+the :method-combination option said :base-flavor-first, the relative order of the :list methods would
+be reversed, and so would the untyped methods, but the :list methods would still be called before the
+untyped ones.  :base-flavor-last is more often right, since it means that foo's own methods are
+called first and si:vanilla-flavor's methods (if it has any) are called last.
+
+     A few specific method types, such as :default and :around, have standard meanings independent
+of the style of method combination, and can be used with any style.  They are described in a table
+below.
+
+     Here are the standardly defined method combination styles.
+
+:daemon     The default style of method combination.  All the :before methods are called, then the
+              primary (untyped) method for the outermost flavor that has one is called, then all the
+              :after methods are called.  The value returned is the value of the primary method.
+
+:daemon-with-or  
+              Like the :daemon method combination style, except that the primary method is wrapped in
+              an :or special form with all :or methods.  Multiple values can be returned from the primary
+              method, but not from the :or methods (as in the or special form).  This produces code
+              like the following in combined methods:  
+
+                      (progn (foo-before-method)
+                             (multiple-value-prog1
+                               (or (foo-or-method)
+                                   (foo-primary-method))
+                               (foo-after-method)))
+
+              This is useful primarily for flavors in which a mixin introduces an alternative to the
+              primary method.  Each :or method gets a chance to run before the primary method and
+              to decide whether the primary method should be run or not; if any :or method returns a
+              non-nil value, the primary method is not run (nor are the rest of the :or methods).  Note
+              that the ordering of the combination of the :or methods is controlled by the order
+              keyword in the :method-combination option.
+
+:daemon-with-and  
+              Like :daemon-with-or except that it combines :and methods in an and special form.  The
+              primary method is run only if all of the :and methods return non-nil values.
+
+:daemon-with-override  
+              Like the :daemon method combination style, except an or special form is wrapped around
+              the entire combined method with all :override typed methods before the combined
+              method.  This differs from :daemon-with-or in that the :before and :after daemons are
+              run only if none of the :override methods returns non-nil.  The combined method looks
+              something like this:  
+
+                      (or (foo-override-method)
+                          (progn (foo-before-method)
+                                 (foo-primary-method)
+                                 (foo-after-method)))
+
+:progn      Calls all the methods inside a progn special form.  Only untyped and :progn methods are
+              allowed.  The combined method calls all the :progn methods and then all the untyped
+              methods.  The result of the combined method is whatever the last of the methods
+              returns.
+
+:or           Calls all the methods inside an or special form.  This means that each of the methods is
+              called in turn.  Only untyped methods and :or methods are allowed; the :or methods are
+              called first.  If a method returns a non-nil value, that value is returned and none of the
+              rest of the methods are called; otherwise, the next method is called.  In other words,
+              each method is given a chance to handle the message; if it doesn't want to handle the
+              message, it can return nil, and the next method gets a chance to try.
+
+:and          Calls all the methods inside an and special form.  Only untyped methods and :and
+              methods are allowed.  The basic idea is much like :or; see above.
+
+:append      Calls all the methods and appends the values together.  Only untyped methods and
+              :append methods are allowed; the :append methods are called first.
+
+:nconc       Calls all the methods and nconc's the values together.  Only untyped methods and
+              :nconc methods are allowed, etc.
+
+:list          Calls all the methods and returns a list of their returned values.  Only untyped methods
+              and :list methods are allowed, etc.
+
+:inverse-list  
+              Calls each method with one argument; these arguments are successive elements of the
+              list that is the sole argument to the operation.  Returns no particular value.  Only
+              untyped methods and :inverse-list methods are allowed, etc.
+
+              If the result of a :list-combined operation is sent back with an :inverse-list-combined
+              operation, with the same ordering and with corresponding method definitions, each
+              component flavor receives the value that came from that flavor.
+
+:pass-on    Calls each method on the values returned by the preceeding one.  The values returned
+              by the combined method are those of the outermost call.  The format of the declaration
+              in the defflavor is:  
+
+                      (:method-combination (:pass-on (ordering . arglist))
+                                           . operation-names)
+
+              where ordering is :base-flavor-first or :base-flavor-last.  arglist may include the &aux
+              and &optional keywords.
+
+              Only untyped methods and :pass-on methods are allowed.  The :pass-on methods are
+              called first.
+
+:case        With :case method combination, the combined method automatically does a selectq
+              dispatch on the first argument of the operation, known as the suboperation.  Methods of
+              type :case can be used, and each one specifies one suboperation that it applies to.  If
+              no :case method matches the suboperation, the primary method, if any, is called.
+
+              Example:
+                      (defflavor foo (a b) ()
+                        (:method-combination (:case :base-flavor-last :win)))
+
+              This method handles (send a-foo :win :a):
+                      (defmethod (foo :case :win :a) ()
+                        a)
+
+              This method handles (send a-foo :win :a*b):
+                      (defmethod (foo :case :win :a*b) ()
+                        (* a b))
+
+              This method handles (send a-foo :win :something-else):
+                      (defmethod (foo :win) (suboperation)
+                        (list 'something-random suboperation))
+
+              :case methods are unusual in that one flavor can have many :case methods for the
+              same operation, as long as they are for different suboperations.
+
+              The suboperations :which-operations, :operation-handled-p, :send-if-handles and
+              :get-handler-for are all handled automatically based on the collection of :case methods
+              that are present.
+
+              Methods of type :or are also allowed.  They are called just before the primary method,
+              and if one of them returns a non-nil value, that is the value of the operation, and no
+              more methods are called.  
+
+     Here is a table of all the method types recognized by the standard styles of method
+combination.
+
+(no type)   If no type is given to defmethod, a primary method is created.  This is the most common
+              type of method.
+
+:before      
+:afterUsed for the before-daemon and after-daemon methods used by :daemon method combination.
+
+:default      If there are no untyped methods among any of the flavors being combined, then the
+              :default methods (if any) are treated as if they were untyped.  If there are any untyped
+              methods, the :default methods are ignored.
+
+              Typically a base-flavor (see (FLAVOR-4)Flavor Families) defines some default methods 
+              for certain of the operations understood by its family.  When using the default kind of method
+              combination these default methods are suppressed if another component provides a primary 
+              method.
+
+:or           
+:andUsed for :daemon-with-or and :daemon-with-and method combination.  The :or methods are
+              wrapped in an or, or the :and methods are wrapped in an and, together with the primary
+              method, between the :before and :after methods.
+
+:override    Allows the features of :or method combination to be used together with daemons.  If you
+              specify :daemon-with-override method combination, you may use :override methods.
+              The :override methods are executed first, until one of them returns non-nil.  If this
+              happens, that method's value(s) are returned and no more methods are used.  If all the
+              :override methods return nil, the :before, primary and :after methods are executed as
+              usual.
+
+              In typical usages of this feature, the :override method usually returns nil and does
+              nothing, but in exceptional circumstances it takes over the handling of the operation.
+
+:or, :and, :progn, :list, :inverse-list, pass-on, :append, :nconc.  
+              Each of these methods types is allowed in the method combination style of the same
+              name.  In those method combination styles, these typed methods work just like untyped
+              ones, but all the typed methods are called before all the untyped ones.
+
+:case        :case methods are used by :case method combination.  
+
+These method types can be used with any method combination style; they have standard meanings
+independent of the method combination style being used.
+
+:around      An :around method is able to control when, whether and how the remaining methods are
+              executed.  It is given a continuation that is a function that will execute the remaining
+              methods, and has complete responsibility for calling it or not, and deciding what
+              arguments to give it.  For the simplest behavior, the arguments should be the operation
+              name and operation arguments that the :around method itself received; but sometimes the
+              whole purpose of the :around method is to modify the arguments before the remaining
+              methods see them.
+
+              The :around method receives three special arguments before the arguments of the
+              operation itself:  the continuation, the mapping-table, and the original-argument-list.
+              The last is a list of the operation name and operation arguments.  The simplest way for
+              the :around method to invoke the remaining methods is to do 
+
+                      (lexpr-funcall-with-mapping-table
+                        continuation mapping-table
+                        original-argument-list)
+
+              In general, the continuation should be called with either funcall-with-mapping-table or
+              lexpr-funcall-with-mapping-table, providing the continuation, the mapping-table, and the
+              operation name (which you know because it is the same as in the defmethod), followed
+              by whatever arguments the remaining methods are supposed to see.
+
+                      (defflavor foo-one-bigger-mixin () ())
+
+                      (defmethod (foo-one-bigger-mixin :around :set-foo)
+                                 (cont mt ignore new-foo)
+                        (funcall-with-mapping-table cont mt :set-foo
+                                                      (1+ new-foo)))
+
+              is a mixin which modifies the :set-foo operation so that the value actually used in it is
+              one greater than the value specified in the message.
+
+:inverse-around  
+              :inverse-around methods work like :around methods, but they are invoked at a different
+              time and in a different order.
+
+              With :around methods, those of earlier flavor components components are invoked first,
+              starting with the instantiated flavor itself, and those of earlier components are invoked
+              within them.  :inverse-around methods are invoked in the opposite order:  si:vanilla-flavor
+              would come first.  Also, all :around methods and wrappers are invoked inside all the
+              :inverse-around methods.
+
+              For example, the :inverse-around :init method for tv:sheet (a base flavor for all window
+              flavors) is used to handle the init keywords :expose-p and :activate-p, which cannot be
+              handled correctly until the window is entirely set up.  They are handled in this method
+              because it is guaranteed to be the first method invoked by the :init operation on any
+              flavor of window (because no component of tv:sheet defines an :inverse-around method
+              for this operation).  All the rest of the work of making a new window valid takes place in
+              this method's continuation; when the continuation returns, the window must be as valid
+              as it will ever be, and it is ready to be exposed or activated.
+
+:wrapper    Used internally by defwrapper.
+
+              Note that if one flavor defines both a wrapper and an :around method for the same
+              operation, the :around method is executed inside the wrapper.
+
+:combined   Used internally for automatically-generated combined methods.  
+
+     The most common form of combination is :daemon.  One thing may not be clear:  when do you
+use a :before daemon and when do you use an :after daemon? In some cases the primary method
+performs a clearly-defined action and the choice is obvious:  :before :launch-rocket puts in the fuel,
+and :after :launch-rocket turns on the radar tracking.
+
+     In other cases the choice can be less obvious.  Consider the :init message, which is sent to a
+newly-created object.  To decide what kind of daemon to use, we observe the order in which
+daemon methods are called.  First the :before daemon of the instantiated flavor is called, then :before
+daemons of successively more basic flavors are called, and finally the :before daemon (if any) of
+the base flavor is called.  Then the primary method is called.  After that, the :after daemon for the
+base flavor is called, followed by the :after daemons at successively less basic flavors.
+
+     Now, if there is no interaction among all these methods, if their actions are completely
+independent, then it doesn't matter whether you use a :before daemon or an :after daemon.  There is
+a difference if there is some interaction.  The interaction we are talking about is usually done through
+instance variables; in general, instance variables are how the methods of different component flavors
+communicate with each other.  In the case of the :init operation, the init-plist can be used as well.
+The important thing to remember is that no method knows beforehand which other flavors have been
+mixed in to form this flavor; a method cannot make any assumptions about how this flavor has been
+combined, and in what order the various components are mixed.
+
+     This means that when a :before daemon has run, it must assume that none of the methods for
+this operation have run yet.  But the :after daemon knows that the :before daemon for each of the
+other flavors has run.  So if one flavor wants to convey information to the other, the first one
+should ``transmit'' the information in a :before daemon, and the second one should ``receive'' it in an
+:after daemon.  So while the :before daemons are run, information is ``transmitted''; that is, instance
+variables get set up.  Then, when the :after daemons are run, they can look at the instance variables
+and act on their values.
+
+     In the case of the :init method, the :before daemons typically set up instance variables of the
+object based on the init-plist, while the :after daemons actually do things, relying on the fact that all
+of the instance variables have been initialized by the time they are called.
+
+     The problems become most difficult when you are creating a network of instances of various
+flavors that are supposed to point to each other.  For example, suppose you have flavors for
+``buffers'' and ``streams'', and each buffer should be accompanied by a stream.  If you create the
+stream in the :before :init method for buffers, you can inform the stream of its corresponding buffer
+with an init keyword, but the stream may try sending messages back to the buffer, which is not yet
+ready to be used.  If you create the stream in the :after :init method for buffers, there will be no
+problem with stream creation, but some other :after :init methods of other mixins may have run and
+made the assumption that there is to be no stream.  The only way to guarantee success is to create
+the stream in a :before method and inform it of its associated buffer by sending it a message from
+the buffer's :after :init method.  This scheme--creating associated objects in :before methods but
+linking them up in :after methods--often avoids problems, because all the various associated objects
+used by various mixins at least exist when it is time to make other objects point to them.
+
+     Since flavors are not hierarchically organized, the notion of levels of abstraction is not rigidly
+applicable.  However, it remains a useful way of thinking about systems.
+
+t up instance variables of the
+object based on the init-plist, while the :after daemons actually do things, relying on the fact that all
+of the instance variables have been initialized by the time they are called.
+
+     The problems become most difficult when you are creating a network of instances of various
+flavors that are supposed to point to each other.  For example, suppose you have flavors for
+``buffers'' and ``streams'', and each buffer should be accompanied by a stream.  If you create the
+stream in the :before :init method for buffers, you can inform the stream of its corresponding buffer
+with an init keyword, but the stream may try sending messages back to the buffer, which is not yet
+ready to be used.  If you create the stream in the :after :init method for buffers, there will be no
+problem with stream creation, but some other :after :init methods of other mixins may have run and
+made the assumption that there is to be no stream.  The only way to guarantee success is to create
+the stream in a :before method and inform it of its associated buffer by sending it a message from
+the buffer's :after :init method.  This scheme--creating associated objects in :before methods but
+linking them up in :after methods--often avoids problems, because all the various associated objects
+used by various mixins at least exist when it is time to make other objects point to them.
+
+     Since flavors are not hierarchically organized, the notion of levels of abstraction is not rigidly
+applicable.  However, it remains a useful way of thinking about systems.
+
+emains a useful way of thinking about systems.
+

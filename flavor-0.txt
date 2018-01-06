@@ -1,0 +1,26 @@
+;;; -*- Mode:gate; Fonts:(CPTFONTB) -*-
+
+=Node: Objects, Message Passing, and Flavors
+
+=Script:
+
+@ (FLAVOR-1)Introduction                      
+@ (FLAVOR-1)Objects                           
+@ (FLAVOR-1)Modularity                        
+@ (FLAVOR-1)Generic Operations                
+@ (FLAVOR-1)Generic Operations in Lisp        
+@ (FLAVOR-1)Simple Use of Flavors             
+@ (FLAVOR-2)Mixing Flavors                    
+@ (FLAVOR-2)Flavor Functions                  
+@ (FLAVOR-3)Defflavor Options                 
+@ (FLAVOR-4)Flavor Families                   
+@ (FLAVOR-4)Vanilla Flavor                    
+@ (FLAVOR-4)Method Combination                
+@ (FLAVOR-5)Implementation of Flavors         
+@ (FLAVOR-5)   Order of Definition            
+@ (FLAVOR-5)   Changing a Flavor              
+@ (FLAVOR-5)Useful Editor Commands            
+@ (FLAVOR-5)Property List Operations          
+@ (FLAVOR-5)Printing Flavor Instances Readably
+@ (FLAVOR-5)Copying Instances                 
+

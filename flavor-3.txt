@@ -1,0 +1,404 @@
+;;; -*- Mode:gate; Fonts:(HL12 HL12I HL12B CPTFONTB HL12BI HL12B HL12I ) -*-
+
+=Node: Defflavor Options
+
+=Text:
+DEFFLAVOR OPTIONS
+
+     There are quite a few options to defflavor.  They are all described here, although some are for
+very specialized purposes and not of interest to most users.  Each option can be written in two
+forms; either the keyword by itself, or a list of the keyword and arguments to that keyword.
+
+     Several of these options declare things about instance variables.  These options can be given
+with arguments which are instance variables, or without any arguments in which case they refer to all
+of the instance variables listed at the top of the defflavor.  This is not necessarily all the instance
+variables of the component flavors, just the ones mentioned in this flavor's defflavor.  When
+arguments are given, they must be instance variables that were listed at the top of the defflavor;
+otherwise they are assumed to be misspelled and an error is signaled.  It is legal to declare things
+about instance variables inherited from a component flavor, but to do so you must list these
+instance variables explicitly in the instance variable list at the top of the defflavor.
+
+:gettable-instance-variables  
+              Enables automatic generation of methods for getting the values of instance variables.
+              The operation name is the name of the variable, in the keyword package (i.e.  it has a
+              colon in front of it).
+
+              Note that there is nothing special about these methods; you could easily define them
+              yourself.  This option generates them automatically to save you the trouble of writing
+              out a lot of very simple method definitions.  (The same is true of methods defined by
+              the :settable-instance-variables option.) If you define a method for the same operation
+              name as one of the automatically generated methods, the explicit definition overrides the
+              automatic one.
+
+:settable-instance-variables  
+              Enables automatic generation of methods for setting the values of instance variables.
+              The operation name is `:set-' followed by the name of the variable.  All settable instance
+              variables are also automatically made gettable and inittable.  (See the note in the
+              description of the :gettable-instance-variables option, above.)
+
+              In addition, :case methods are generated for the :set operation with suboperations taken
+              from the names of the variables, so that :set can be used to set them.
+
+:inittable-instance-variables  
+              The instance variables listed as arguments, or all instance variables listed in this
+              defflavor if the keyword is given alone, are made inittable.  This means that they can
+              be initialized through use of a keyword (a colon followed by the name of the variable) as
+              an init-option argument to make-instance.
+
+:special-instance-variables  
+              The instance variables listed as arguments, or all instance variables listed in this
+              defflavor if the keyword is given alone, will be bound dynamically when handling
+              messages.  (By default, instance variables are bound lexically with the scope being the
+              method.) You must do this to any instance variables that you wish to be accessible
+              through symeval, set, boundp and makunbound, since they see only dynamic bindings.
+
+              This should also be done for any instance variables that are declared globally special.  If
+              you omit this, the flavor system does it for you automatically when you instantiate the
+              flavor, and gives you a warning to remind you to fix the defflavor.
+
+:init-keywords  
+              The arguments are declared to be valid keywords to use in instantiate-flavor when
+              creating an instance of this flavor (or any flavor containing it).  The system uses this
+              for error-checking:  before the system sends the :init message, it makes sure that all the
+              keywords in the init-plist are either inittable instance variables or elements of this list.  If
+              any is not recognized, an error is signaled.  When you write a :init method that accepts
+              some keywords, they should be listed in the :init-keywords option of the flavor.
+
+              If :allow-other-keys is used as an init keyword with a non-nil value, this error check is
+              suppressed.  Then unrecognized keywords are simply ignored.
+
+:default-init-plist  
+              The arguments are alternating keywords and value forms, like a property list.  When the
+              flavor is instantiated, these properties and values are put into the init-plist unless already
+              present.  This allows one component flavor to default an option to another component
+              flavor.  The value forms are only evaluated when and if they are used.  For example, 
+
+                      (:default-init-plist :frob-array
+                                           (make-array 100))
+
+              would provide a default ``frob array'' for any instance for which the user did not provide
+              one explicitly.
+
+                      (:default-init-plist :allow-other-keys t)
+
+              prevents errors for unhandled init keywords in all instantiation of this flavor and other
+              flavors that depend on it.
+
+:required-init-keywords  
+              The arguments are init keywords which are to be required each time this flavor (or any
+              flavor containing it) is instantiated.  An error is signaled if any required init keyword is
+              missing.
+
+:required-instance-variables  
+              Declares that any flavor incorporating this one that is instantiated into an object must
+              contain the specified instance variables.  An error occurs if there is an attempt to
+              instantiate a flavor that incorporates this one if it does not have these in its set of
+              instance variables.  Note that this option is not one of those that checks the spelling of
+              its arguments in the way described at the start of this section (if it did, it would be
+              useless).
+
+              Required instance variables may be freely accessed by methods just like normal instance
+              variables.  The difference between listing instance variables here and listing them at the
+              front of the defflavor is that the latter declares that this flavor ``owns'' those variables
+              and accepts responsibility for initializing them, while the former declares that this flavor
+              depends on those variables but that some other flavor must be provided to manage them
+              and whatever features they imply.
+
+:required-methods  
+              The arguments are names of operations that any flavor incorporating this one must
+              handle.  An error occurs if there is an attempt to instantiate such a flavor and it is
+              lacking a method for one of these operations.  Typically this option appears in the
+              defflavor for a base flavor (see (FLAVOR-4)Flavor Families).  Usually this is used
+              when a base flavor does a (send self ...) to send itself a message that is not handled
+              by the base flavor itself; the idea is that the base flavor will not be instantiated alone,
+              but only with other components (mixins) that do handle the message.  This keyword
+              allows the error of having no handler for the message to be detected when the flavor
+              instantiated or when compile-flavor-methods is done, rather than when the missing
+              operation is used.
+
+:required-flavors  
+              The arguments are names of flavors that any flavor incorporating this one must include
+              as components, directly or indirectly.  The difference between declaring flavors as
+              required and listing them directly as components at the top of the defflavor is that
+              declaring flavors to be required does not make any commitments about where those
+              flavors will appear in the ordered list of components; that is left up to whoever does
+              specify them as components.  The purpose of declaring a flavor to be required is to
+              allow instance variables declared by that flavor to be accessed.  It also provides error
+              checking:  an attempt to instantiate a flavor that does not include the required flavors as
+              components signals an error.  Compare this with :required-methods and
+              :required-instance-variables.
+
+              For an example of the use of required flavors, consider the ship example given earlier,
+              and suppose we want to define a relativity-mixin which increases the mass dependent
+              on the speed.  We might write, 
+
+                      (defflavor relativity-mixin () (moving-object))
+                      (defmethod (relativity-mixin :mass) ()
+                        (// mass (sqrt (- 1 (^ (// (send self :speed)
+                                                   *speed-of-light*)
+                                               2)))))
+
+              but this would lose because any flavor that had relativity-mixin as a component would
+              get moving-object right after it in its component list.  As a base flavor, moving-object
+              should be last in the list of components so that other components mixed in can replace
+              its methods and so that daemon methods combine in the right order.  relativity-mixin has
+              no business changing the order in which flavors are combined, which should be under the
+              control of its caller.  For example, 
+
+                      (defflavor starship ()
+                                 (relativity-mixin long-distance-mixin ship))
+
+              puts moving-object last (inheriting it from ship).
+
+              So instead of the definition above we write, 
+
+                      (defflavor relativity-mixin () ()
+                              (:required-flavors moving-object))
+
+              which allows relativity-mixin's methods to access moving-object instance variables such
+              as mass (the rest mass), but does not specify any place for moving-object in the list of
+              components.
+
+              It is very common to specify the base flavor of a mixin with the :required-flavors option
+              in this way.
+
+:included-flavors  
+              The arguments are names of flavors to be included in this flavor.  The difference
+              between declaring flavors here and declaring them at the top of the defflavor is that
+              when component flavors are combined, if an included flavor is not specified as a normal
+              component, it is inserted into the list of components immediately after the last
+              component to include it.  Thus included flavors act like defaults.  The important thing is
+              that if an included flavor is specified as a component, its position in the list of
+              components is completely controlled by that specification, independently of where the
+              flavor that includes it appears in the list.
+
+              :included-flavors and :required-flavors are used in similar ways; it would have been
+              reasonable to use :included-flavors in the relativity-mixin example above.  The difference
+              is that when a flavor is required but not given as a normal component, an error is
+              signaled, but when a flavor is included but not given as a normal component, it is
+              automatically inserted into the list of components at a reasonable place.
+
+:no-vanilla-flavor  
+              Normally when a flavor is instantiated, the special flavor si:vanilla-flavor is included
+              automatically at the end of its list of components.  The vanilla flavor provides some
+              default methods for the standard operations which all objects are supposed to
+              understand.  These include :print-self, :describe, :which-operations, and several other
+              operations.  See (FLAVOR-4)Vanilla Flavor.
+
+              If any component of a flavor specifies the :no-vanilla-flavor option, then
+              si:vanilla-flavor is not included in that flavor.  This option should not be used casually.
+
+:default-handler  
+              The argument is the name of a function that is to be called to handle any operation for
+              which there is no method.  Its arguments are the arguments of the send which invoked
+              the operation, including the operation name as the first argument.  Whatever values the
+              default handler returns are the values of the operation.
+
+              Default handlers can be inherited from component flavors.  If a flavor has no default
+              handler, any operation for which there is no method signals a sys:unclaimed-message
+              error.
+
+:ordered-instance-variables  
+              This option is mostly for esoteric internal system uses.  The arguments are names of
+              instance variables which must appear first (and in this order) in all instances of this
+              flavor, or any flavor depending on this flavor.  This is used for instance variables that
+              are specially known about by microcode, and also in connection with the
+              :outside-accessible-instance-variables option.  If the keyword is given alone, the
+              arguments default to the list of instance variables given at the top of this defflavor.
+
+              Removing any of the :ordered-instance-variables, or changing their positions in the list,
+              requires that you recompile all methods that use any of the affected instance variables.
+
+:outside-accessible-instance-variables  
+              The arguments are instance variables which are to be accessible from outside of this
+              flavor's methods.  A macro (actually a subst) is defined which takes an object of this
+              flavor as an argument and returns the value of the instance variable; setf may be used
+              to set the value of the instance variable.  The name of the macro is the name of the
+              flavor concatenated with a hyphen and the name of the instance variable.  These
+              macros are similar to the accessor macros created by defstruct (see
+              (DEFSTRUCT-0)Defstruct.)
+
+              This feature works in two different ways, depending on whether the instance variable
+              has been declared to have a fixed slot in all instances, via the
+              :ordered-instance-variables option.
+
+              If the variable is not ordered, the position of its value cell in the instance must be
+              computed at run time.  This takes noticeable time, although less than actually sending a
+              message would take.  An error is signaled if the argument to the accessor macro is not
+              an instance or is an instance that does not have an instance variable with the
+              appropriate name.  However, there is no error check that the flavor of the instance is
+              the flavor the accessor macro was defined for, or a flavor built upon that flavor.  This
+              error check would be too expensive.
+
+              If the variable is ordered, the compiler compiles a call to the accessor macro into a
+              subprimitive which simply accesses that variable's assigned slot by number.  This
+              subprimitive is only three or four times slower than car.  The only error-checking
+              performed is to make sure that the argument is really an instance and is really big
+              enough to contain that slot.  There is no check that the accessed slot really belongs to
+              an instance variable of the appropriate name.
+
+:accessor-prefix  
+              Normally the accessor macro created by the :outside-accessible-instance-variables
+              option to access the flavor f's instance variable v is named f-v.  Specifying
+              (:accessor-prefix get$) causes it to be named get$v instead.
+
+:alias-flavor  
+              Marks this flavor as being an alias for another flavor.  This flavor should have only one
+              component, which is the flavor it is an alias for, and no instance variables or other
+              options.  No methods should be defined for it.
+
+              The effect of the :alias-flavor option is that an attempt to instantiate this flavor actually
+              produces an instance of the other flavor.  Without this option, it would make an instance
+              of this flavor, which might behave identically to an instance of the other flavor.
+              :alias-flavor eliminates the need for separate mapping tables, method tables, etc.  for this
+              flavor, which becomes truly just another name for its component flavor.
+
+              The alias flavor and its base flavor are also equivalent when used as an argument of
+              subtypep or as the second argument of typep; however, if the alias status of a flavor is
+              changed, you must recompile any code which uses it as the second argument to typep in
+              order for such code to function.
+
+              :alias-flavor is mainly useful for changing a flavor's name gracefully.
+
+:abstract-flavor  
+              This option marks the flavor as one that is not supposed to be instantiated (that is, is
+              supposed to be used only as a component of other flavors).  An attempt to instantiate
+              the flavor signals an error.
+
+              It is sometimes useful to do compile-flavor-methods on a flavor that is not going to be
+              instantiated, if the combined methods for this flavor will be inherited and shared by many
+              others.  :abstract-flavor tells compile-flavor-methods not to complain about missing
+              required flavors, methods or instance variables.  Presumably the flavors that depend on
+              this one and actually are instantiated will supply what is lacking.
+
+:method-combination  
+              Specifies the method combination style to be used for certain operations.  Each
+              argument to this option is a list (style order operation1 operation2...).  operation1,
+              operation2, etc.  are names of operations whose methods are to be combined in the
+              declared fashion.  style is a keyword that specifies a style of combination; see
+              (FLAVOR-4)Method Combination.  order is a keyword whose interpretation is up to
+              style; typically it is either :base-flavor-first or :base-flavor-last.
+
+              Any component of a flavor may specify the type of method combination to be used for
+              a particular operation.  If no component specifies a style of method combination, then
+              the default style is used, namely :daemon.  If more than one component of a flavor
+              specifies the combination style for a given operation, then they must agree on the
+              specification, or else an error is signaled.
+
+:instance-area-function  
+              The argument is the name of a function to be used when this flavor is instantiated, to
+              determine which area to create the new instance in.  Use a function name rather than an
+              explicit lambda expression.  
+
+                      (:instance-area-function function-name)
+
+              When the instance area function is called, it is given the init plist as an argument, and
+              should return an area number or nil to use the default.  Init keyword values can be
+              accessed using get on the init plist.
+
+              Instance area functions can be inherited from component flavors.  If a flavor does not
+              have or inherit an instance area function, its instances are created in default-cons-area.
+
+:instantiation-flavor-function  
+              You can define a flavor foo so that, when you try to instantiate it, it calls a function to
+              decide what flavor it should really instantiate (not necessarily foo).  This is done by
+              giving foo an instantiation flavor function:  
+
+                      (:instantiation-flavor-function function-name)
+
+              When (make-instance 'foo keyword-args...) is done, the instantiation flavor function is
+              called with two arguments:  the flavor name specified (foo in this case) and the init plist
+              (the list of keyword args).  It should return the name of the flavor that should actually
+              be instantiated.
+
+              Note that the instantiation flavor function applies only to the flavor it is specified for.  It
+              is not inherited by dependent flavors.
+
+:run-time-alternatives  
+
+:mixture     A run-time-alternative flavor defines a collection of similar flavors, all built on the same base
+              flavor but having various mixins as well.  Instantiation chooses a flavor of the collection
+              at run time based on the init keywords specified, using an automatically generated
+              instantiation flavor function.
+
+              A simple example would be 
+
+                      (defflavor foo () (basic-foo)
+                        (:run-time-alternatives
+                           (:big big-foo-mixin))
+                        (:init-keywords :big))
+
+              Then (make-instance 'foo :big t) makes an instance of a flavor whose components are
+              big-foo-mixin as well as foo.  But (make-instance 'foo) or (make-instance 'foo :big nil)
+              makes an instance of foo itself.  The clause (:big big-foo-mixin) in the
+              :run-time-alternatives says to incorporate big-foo-mixin if :big's value is t, but not if it
+              is nil.
+
+              There may be several clauses in the :run-time-alternatives.  Each one is processed
+              independently.  Thus, two keywords :big and :wide could independently control two
+              mixins, giving four possibilities.  
+
+                      (defflavor foo () (basic-foo)
+                        (:run-time-alternatives
+                           (:big big-foo-mixin)
+                           (:wide wide-foo-mixin))
+                        (:init-keywords :big))
+
+              It is possible to test for values other than t and nil.  The clause 
+
+                      (:size (:big big-foo-mixin)
+                             (:small small-foo-mixin)
+                             (nil nil))
+
+              allows the value for the keyword :size to be :big, :small or nil (or omitted).  If it is nil or
+              omitted, no mixin is used (that's what the second nil means).  If it is :big or :small, an
+              appropriate mixin is used.  This kind of clause is distinguished from the simpler kind by
+              having a list as its second element.  The values to check for can be anything, but eq is
+              used to compare them.
+
+              The value of one keyword can control the interpretation of others by nesting clauses
+              within clauses.  If an alternative has more than two elements, the additional elements are
+              subclauses which are considered only if that alternative is selected.  For example, the
+              clause 
+
+                      (:etherial (t etherial-mixin)
+                                 (nil nil
+                                      (:size (:big big-foo-mixin)
+                                             (:small small-foo-mixin)
+                                             (nil nil))))
+
+              says to consider the :size keyword only if :etherial is nil.
+
+              :mixture is synonymous with :run-time-alternatives.  It exists for compatibility with
+              Symbolics systems.
+
+:documentation  
+              Specifies the documentation string for the flavor definition, which is made accessible
+              through (documentation flavorname 'flavor).
+
+              This documentation can be viewed with the describe-flavor function (see
+              (FLAVOR-2)Flavor Functions) or the editor's Meta-X Describe Flavor command (see
+              (FLAVOR-5)Useful Editor Commands).
+
+              Previously this option expected two arguments, a keyword and a string.  The keyword
+              was intended to classify the flavor as a base flavor, mixin or combination.  But no way
+              was found for this classification to serve a useful purpose.  Keyword are still accepted
+              but no longer recommended for use.
+
+        Symbolics systems.
+
+:documentation  
+              Specifies the documentation string for the flavor definition, which is made accessible
+              through (documentation flavorname 'flavor).
+
+              This documentation can be viewed with the describe-flavor function (see
+              (FLAVOR-2)Flavor Functions) or the editor's Meta-X Describe Flavor command (see
+              (FLAVOR-5)Useful Editor Commands).
+
+              Previously this option expected two arguments, a keyword and a string.  The keyword
+              was intended to classify the flavor as a base flavor, mixin or combination.  But no way
+              was found for this classification to serve a useful purpose.  Keyword are still accepted
+              but no longer recommended for use.
+
+onger recommended for use.
+

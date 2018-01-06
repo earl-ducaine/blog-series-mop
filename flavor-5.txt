@@ -1,0 +1,368 @@
+;;; -*- Mode:gate; Fonts:(HL12 HL12I HL12B CPTFONTB HL12BI HL12B HL12I ) -*-
+
+=Node: Implementation of Flavors
+
+=Text:
+IMPLEMENTATION OF FLAVORS
+
+     An object that is an instance of a flavor is implemented using the data type dtp-instance.  The
+representation is a structure whose first word, tagged with dtp-instance-header, points to a
+structure (known to the microcode as an ``instance descriptor'') containing the internal data for the
+flavor.  The remaining words of the structure are value cells containing the values of the instance
+variables.  The instance descriptor is a defstruct that appears on the si:flavor property of the flavor
+name.  It contains, among other things, the name of the flavor, the size of an instance, the table of
+methods for handling operations, and information for accessing the instance variables.
+
+     defflavor creates such a data structure for each flavor, and links them together according to the
+dependency relationships between flavors.
+
+     A message is sent to an instance simply by calling it as a function, with the first argument being
+the operation.  The microcode binds self to the object and binds those instance variables that are
+supposed to be special to the value cells in the instance.  Then it passes on the operation and
+arguments to a funcallable hash table taken from the flavor-structure for this flavor.
+
+     When the funcallable hash table is called as a function, it hashes the first argument (the
+operation) to find a function to handle the operation and an array called a mapping table.  The
+variable sys:self-mapping-table is bound to the mapping table, which tells the microcode how to
+access the lexical instance variables, those not defined to be special.  Then the function is called.  If
+there is only one method to be invoked, this function is that method; otherwise it is an
+automatically-generated function called the combined method (see (FLAVOR-2)Mixing Flavors),
+which calls the appropriate methods in the right order.  If there are wrappers, they are incorporated
+into this combined method.
+
+     The mapping table is an array whose elements correspond to the instance variables which can
+be accessed by the flavor to which the currently executing method belongs.  Each element contains
+the position in self of that instance variable.  This position varies with the other instance variables
+and component flavors of the flavor of self.
+
+     Each time the combined method calls another method, it sets up the mapping table required by
+that method--not in general the same one which the combined method itself uses.  The mapping
+tables for the called methods are extracted from the array leader of the mapping table used by the
+combined method, which is kept in a local variable of the combined method's stack frame while
+sys:self-mapping-table is set to the mapping tables for the component methods.
+
+sys:self-mapping-table                                                                  Variable        
+        Holds the current mapping table, which tells the running flavor method where in self to find
+        each instance variable.  
+
+     Ordered instance variables are referred to directly without going through the mapping table.  This
+is a little faster, and reduces the amount of space needed for mapping tables.  It is also the reason
+why compiled code contains the positions of the ordered instance variables and must be recompiled
+when they change.
+
+=Node: Order of Definition
+
+=Text:
+ORDER OF DEFINITION
+
+     There is a certain amount of freedom to the order in which you do defflavor's, defmethod's, and
+defwrapper's.  This freedom is designed to make it easy to load programs containing complex flavor
+structures without having to do things in a certain order.  It is considered important that not all the
+methods for a flavor need be defined in the same file.  Thus the partitioning of a program into files
+can be along modular lines.
+
+     The rules for the order of definition are as follows.
+
+     Before a method can be defined (with defmethod or defwrapper) its flavor must have been
+defined (with defflavor).  This makes sense because the system has to have a place to remember
+the method, and because it has to know the instance-variables of the flavor if the method is to be
+compiled.
+
+     When a flavor is defined (with defflavor) it is not necessary that all of its component flavors be
+defined already.  This is to allow defflavor's to be spread between files according to the modularity
+of a program, and to provide for mutually-dependent flavors.  Methods can be defined for a flavor
+some of whose component flavors are not yet defined; however, in certain cases compiling those
+methods may produce a warning that an instance variable was declared special (because the system
+did not realize it was an instance variable).  If this happens, you should fix the problem and recompile.
+
+     The methods automatically generated by the :gettable-instance-variables and
+:settable-instance-variables defflavor options (see (FLAVOR-3)Defflavor Options) are generated
+at the time the defflavor is done.
+
+     The first time a flavor is instantiated, or when compile-flavor-methods is done, the system
+looks through all of the component flavors and gathers various information.  At this point an error is
+signaled if not all of the components have been defflavor'ed.  This is also the time at which certain
+other errors are detected, for instance lack of a required instance-variable (see the
+:required-instance-variables defflavor option, (FLAVOR-3)Defflavor Options).  The combined
+methods (see (FLAVOR-2)Mixing Flavors) are generated at this time also, unless they already
+exist.
+
+     After a flavor has been instantiated, it is possible to make changes to it.  Such changes affect
+all existing instances if possible.  This is described more fully immediately below.
+
+=Node: Changing a Flavor
+
+=Text:
+CHANGING A FLAVOR
+
+     You can change anything about a flavor at any time.  You can change the flavor's general
+attributes by doing another defflavor with the same name.  You can add or modify methods by doing
+defmethod's.  If you do a defmethod with the same flavor-name, operation (and suboperation if any),
+and (optional) method-type as an existing method, that method is replaced by the new definition.
+You can remove a method with undefmethod (see (FLAVOR-2)Flavor Functions).
+
+     These changes always propagate to all flavors that depend upon the changed flavor.  Normally
+the system propagates the changes to all existing instances of the changed flavor and its dependent
+flavors.  However, this is not possible when the flavor has been changed so drastically that the old
+instances would not work properly with the new flavor.  This happens if you change the number of
+instance variables, which changes the size of an instance.  It also happens if you change the order
+of the instance variables (and hence the storage layout of an instance), or if you change the
+component flavors (which can change several subtle aspects of an instance).  The system does not
+keep a list of all the instances of each flavor, so it cannot find the instances and modify them to
+conform to the new flavor definition.  Instead it gives you a warning message, on the *error-output*
+stream, to the effect that the flavor was changed incompatibly and the old instances will not get the
+new version.  The system leaves the old flavor data-structure intact (the old instances continue to
+point at it) and makes a new one to contain the new version of the flavor.  If a less drastic change
+is made, the system modifies the original flavor data-structure, thus affecting the old instances that
+point at it.  However, if you redefine methods in such a way that they only work for the new
+version of the flavor, then trying to use those methods with the old instances won't work.
+
+=Node: Useful Editor Commands
+
+=Text:
+USEFUL EDITOR COMMANDS
+
+     This section briefly documents some editor commands that are useful in conjunction with
+flavors.
+
+Meta-.      The Meta-.  (Edit Definition) command can find the definition of a flavor in the same
+              way that it can find the definition of a function.
+
+              Edit Definition can find the definition of a method if you give it a suitable function spec
+              starting with :method, such as (:method tv:sheet :expose).  The keyword :method may be
+              omitted if the definition is in the editor already.  Completion is available on the flavor
+              name and operation name, as usual only for definitions loaded into the editor.
+
+Meta-X Describe Flavor  
+              Asks for a flavor name in the mini-buffer and describes its characteristics.  When typing
+              the flavor name you have completion over the names of all defined flavors (thus this
+              command can be used to aid in guessing the name of a flavor).  The display produced is
+              mouse sensitive where there are names of flavors and of methods; as usual the
+              right-hand mouse button gives you a menu of editor commands to apply to the name
+              and the left-hand mouse button does one of them, typically positioning the editor to the
+              source code for that name.
+
+Meta-X List Methods  
+
+Meta-X Edit MethodsAsks you for an operation in the mini-buffer and lists all the flavors that have
+              a method for that operation.  You may type in the operation name, point to it with the
+              mouse, or let it default to the operation of the message being sent by the Lisp form the
+              cursor is on.  List Methods produces a mouse-sensitive display allowing you to edit
+              selected methods or just to see which flavors have methods, while Edit Methods skips
+              the display and proceeds directly to editing the methods.
+
+              As usual with this type of command, the editor command Control-Shift-P advances the
+              editor cursor to the next method in the list, reading in its source file if necessary.
+              Typing Control-Shift-P, while the display is on the screen, edits the first method.
+
+              In addition, you can find a copy of the list in the editor buffer *Possibilities*.  While in
+              that buffer, the command Control-/ visits the definition of the method described on the
+              line the cursor is pointing at.
+
+              These techniques of moving through the objects listed apply to all the following
+              commands as well.
+
+Meta-X List Combined Methods  
+
+Meta-X Edit Combined MethodsAsks you for an operation name and a flavor in two mini-buffers and
+              lists all the methods that would be called to handle that operation for an instance of that
+              flavor.
+
+              List Combined Methods can be very useful for telling what a flavor will do in response to
+              a message.  It shows you the primary method, the daemons, and the wrappers and lets
+              you see the code for all of them; type Control-Shift-P to get to successive ones.
+
+Meta-X List Flavor Components  
+
+Meta-X Edit Flavor ComponentsAsks you for a flavor and lists or begins visiting all the flavors it
+              depends on.
+
+Meta-X List Flavor Dependents  
+
+Meta-X Edit Flavor DependentsAsks you for a flavor and lists or begins visiting all the flavors that
+              depend on it.
+
+Meta-X List Flavor Direct Dependents  
+
+Meta-X Edit Flavor Direct DependentsAsks you for a flavor and lists or begins visiting all the
+              flavors that depend directly on it.
+
+Meta-X List Flavor Methods  
+
+Meta-X Edit Flavor MethodsAsks you for a flavor and lists or begins visiting all the methods defined
+              for that flavor.  (This does not include methods inherited from its component flavors.) 
+
+=Node: Property List Operations
+
+=Text:
+PROPERTY LIST OPERATIONS
+
+     It is often useful to associate a property list with an abstract object, for the same reasons that
+it is useful to have a property list associated with a symbol.  This section describes a mixin flavor
+that can be used as a component of any new flavor in order to provide that new flavor with a
+property list.  For more details and examples, see the general discussion of property lists
+((MANLISTSTR-2)Property Lists).  The usual property list functions (get, putprop, etc.) all work on
+instances by sending the instance the corresponding message.
+
+si:property-list-mixin                                                                     Flavor        
+        This mixin flavor provides the basic operations on property lists.  
+
+:get property-name &optional default                         Operation on si:property-list-mixin        
+        Looks up the object's property-name property.  If it finds such a property, it returns the
+        value; otherwise it returns default.  
+
+:getl property-name-list                                       Operation on si:property-list-mixin        
+        Like the :get operation, except that the argument is a list of property names.  The :getl
+        operation searches down the property list until it finds a property whose property name is one
+        of the elements of property-name-list.  It returns the portion of the property list begining with
+        the first such property that it found.  If it doesn't find any, it returns nil.  
+
+:putprop value property-name                                 Operation on si:property-list-mixin        
+        Gives the object an property-name property of value.  
+
+                (send object :set :get property-name value)
+
+        also has this effect.  
+
+:remprop property-name                                        Operation on si:property-list-mixin        
+        Removes the object's property-name property, by splicing it out of the property list.  It
+        returns one of the cells spliced out, whose car is the former value of the property that was
+        just removed.  If there was no such property to begin with, the value is nil.  
+
+:get-location-or-nil property-name                      Operation on si:property-list-mixin        
+:get-location property-name                                Operation on si:property-list-mixin        
+        Both return a locative pointer to the cell in which this object's property-name property is
+        stored.  If there is no such property, :get-location-or-nil returns nil, but :get-location adds a
+        cell to the property list and initialized to nil, and a pointer to that cell is returned.  
+
+:push-property value property-name                        Operation on si:property-list-mixin        
+        The property-name property of the object should be a list (note that nil is a list and an
+        absent property is nil).  This operation sets the property-name property of the object to a list
+        whose car is value and whose cdr is the former property-name property of the list.  This is
+        analogous to doing 
+
+                (push value (get object property-name))
+
+        See the push special form ((MANLISTSTR-1)Conses).  
+
+:property-list                                                Operation on si:property-list-mixin        
+        Returns the list of alternating property names and values that implements the property list.  
+
+:property-list-location                                   Operation on si:property-list-mixin        
+        Returns a locative pointer to the cell in the instance which holds the property list data.  
+
+:set-property-list list                                      Operation on si:property-list-mixin        
+        Sets the list of alternating property names and values that implements the property list to list.
+        So does 
+
+                (send object :set :property-list list)
+
+:property-list list                                          Init option for si:property-list-mixin        
+        This initializes the list of alternating property names and values that implements the property
+        list to list.  
+
+=Node: Printing Flavor Instances Readably
+
+=Text:
+PRINTING FLAVOR INSTANCES READABLY
+
+     A flavor instance can print out so that it can be read back in, as long as you give it a :print-self
+method that produces a suitable printed representation, and provide a way to parse it.  The
+convention for doing this is to print as 
+
+        flavor-name additional-data
+
+     and make sure that the flavor defines or inherits a :read-instance method that can parse the
+additional-data and return an instance (see (READPRINT-2)Sharp-sign Constructs).  A convenient
+way of doing this is to use si:print-readably-mixin.
+
+si:print-readably-mixin                                                                   Flavor        
+        Provides for flavor instances to print out using the  syntax, and also for reading things
+        that were printed in that way.  
+
+:reconstruction-init-plist                             Operation on si:print-readably-mixin        
+        When you use si:print-readably-mixin, you must define the operation :reconstruction-init-plist.
+        This should return an alternating list of init options and values that could be passed to
+        make-instance to create an instance ``like'' this one.  Sufficient similarity is defined by the
+        practical purposes of the flavor's implementor.  
+
+=Node: Copying Instances
+
+=Text:
+COPYING INSTANCES
+
+     Many people have asked ``How do I copy an instance?'' and have expressed surprise when told
+that the flavor system does not include any built-in way to copy instances.  Why isn't there just a
+function copy-instance that creates a new instance of the same flavor with all its instance variables
+having the same values as in the original instance? This would work for the simplest use of flavors,
+but it isn't good enough for most advanced uses of flavors.  A number of issues are raised by
+copying:
+
+*             Do you or do you not send an :init message to the new instance? If you do, what
+              init-plist options do you supply?
+
+*             If the instance has a property list, you should copy the property list (e.g.  with copylist)
+              so that putprop or remprop on one of the instances does not affect the properties of
+              the other instance.
+
+*             If the instance is a pathname, the concept of copying is not even meaningful.
+              Pathnames are interned, which means that there can only be one pathname object with
+              any given set of instance-variable values.
+
+*             If the instance is a stream connected to a network, some of the instance variables
+              represent an agent in another host elsewhere in the network.  Should the copy talk to
+              the same agent, or should a new agent be constructed for it?
+
+*             If the instance is a stream connected to a file, should copying the stream make a copy
+              of the file or should it make another stream open to the same file? Should the choice
+              depend on whether the file is open for input or for output? 
+
+     In general, you can see that in order to copy an instance one must understand a lot about the
+instance.  One must know what the instance variables mean so that the values of the instance
+variables can be copied if necessary.  One must understand what relations to the external
+environment the instance has so that new relations can be established for the new instance.  One
+must even understand what the general concept `copy' means in the context of this particular
+instance, and whether it means anything at all.
+
+     Copying is a generic operation, whose implementation for a particular instance depends on
+detailed knowledge relating to that instance.  Modularity dictates that this knowledge be contained in
+the instance's flavor, not in a ``general copying function''.  Thus the way to copy an instance is to
+send it a message, as in (send object :copy).  It is up to you to implement the operation in a suitable
+fashion, such as 
+
+        (defflavor foo (a b c) ()
+          (:inittable-instance-variables a b))
+
+        (defmethod (foo :copy) ()
+          (make-instance 'foo :a a :b b))
+
+     The flavor system chooses not to provide any default method for copying an instance, and
+does not even suggest a standard name for the copying message, because copying involves so
+many semantic issues.
+
+     If a flavor supports the :reconstruction-init-plist operation, a suitable copy can be made by
+invoking this operation and passing the result to make-instance along with the flavor name.  This is
+because the definition of what the :reconstruction-init-plist operation should do requires it to
+address all the problems listed above.  Implementing this operation is up to you, and so is making
+sure that the flavor implements sufficient init keywords to transmit any information that is to be
+copied. 
+
+*
+
+        (defmethod (foo :copy) ()
+          (make-instance 'foo :a a :b b))
+
+     The flavor system chooses not to provide any default method for copying an instance, and
+does not even suggest a standard name for the copying message, because copying involves so
+many semantic issues.
+
+     If a flavor supports the :reconstruction-init-plist operation, a suitable copy can be made by
+invoking this operation and passing the result to make-instance along with the flavor name.  This is
+because the definition of what the :reconstruction-init-plist operation should do requires it to
+address all the problems listed above.  Implementing this operation is up to you, and so is making
+sure that the flavor implements sufficient init keywords to transmit any information that is to be
+copied. 
+
+ is to be
+copied. 
+

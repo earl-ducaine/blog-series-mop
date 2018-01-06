@@ -6,5 +6,6 @@
 
 * Post 2 -- Equivelence of to other reflection.
 * Post 3 -- Bootstapping knowlege, precision in terminology
-* Post 4 -- packageless NODE inspired object system
-* Post 5 -- semantic object oreriented approach (hierarchies code highly separate)
+* Post 4 -- Flavor implementation
+* Post 5 -- packageless NODE inspired object system
+* Post 6 -- semantic object oreriented approach (hierarchies code highly separate)

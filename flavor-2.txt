@@ -1,0 +1,618 @@
+
+
+
+MIXING FLAVORS
+
+     Now we have a system for defining message-receiving objects so that we can have generic
+operations.  If we want to create a new type called meteor that would accept the same generic
+operations as ship, we could simply write another defflavor and two more defmethod's that looked
+just like those of ship, and then meteors and ships would both accept the same operations.  ship
+would have some more instance variables for holding attributes specific to ships and some more
+methods for operations that are not generic, but are only defined for ships; the same would be true
+of meteor.
+
+     However, this would be a a wasteful thing to do.  The same code has to be repeated in several
+places, and several instance variables have to be repeated.  The code now needs to be maintained
+in many places, which is always undesirable.  The power of flavors (and the name ``flavors'') comes
+from the ability to mix several flavors and get a new flavor.  Since the functionality of ship and
+meteor partially overlap, we can take the common functionality and move it into its own flavor, which
+might be called moving-object.  We would define moving-object the same way as we defined ship in
+the previous section.  Then, ship and meteor could be defined like this:
+
+        (defflavor ship (engine-power number-of-passengers name) 
+                        (moving-object)
+           :gettable-instance-variables)
+
+        (defflavor meteor (percent-iron)
+                          (moving-object)
+           :inittable-instance-variables)
+
+     These defflavor forms use the second subform, which we ignored previously.  The second
+subform is a list of flavors to be combined to form the new flavor; such flavors are called
+components.  Concentrating on ship for a moment (analogous things are true of meteor), we see that
+it has exactly one component flavor:  moving-object.  It also has a list of instance variables, which
+includes only the ship-specific instance variables and not the ones that it shares with meteor.  By
+incorporating moving-object, the ship flavor acquires all of its instance variables, and so need not
+name them again.  It also acquires all of moving-object's methods, too.  So with the new definition,
+ship instances still implement the :x-velocity and :speed operations, with the same meaning as before.
+However, the :engine-power operation is also understood (and returns the value of the
+engine-power instance variable).
+
+     What we have done here is to take an abstract type, moving-object, and build two more
+specialized and powerful abstract types on top of it.  Any ship or meteor can do anything a moving
+object can do, and each also has its own specific abilities.  This kind of building can continue; we
+could define a flavor called ship-with-passenger that was built on top of ship, and it would inherit all
+of moving-object's instance variables and methods as well as ship's instance variables and methods.
+Furthermore, the second subform of defflavor can be a list of several components, meaning that the
+new flavor should combine all the instance variables and methods of all the flavors in the list, as well
+as the ones those flavors are built on, and so on.  All the components taken together form a big tree
+of flavors.  A flavor is built from its components, its components' components, and so on.  We
+sometimes use the term ``components'' to mean the immediate components (the ones listed in the
+defflavor), and sometimes to mean all the components (including the components of the immediate
+components and so on).  (Actually, it is not strictly a tree, since some flavors might be components
+through more than one path.  It is really a directed graph; it can even be cyclic.)
+
+     The order in which the components are combined to form a flavor is important.  The tree of
+flavors is turned into an ordered list by performing a top-down, depth-first walk of the tree, including
+non-terminal nodes before the subtrees they head, ignoring any flavor that has been encountered
+previously somewhere else in the tree.  For example, if flavor-1's immediate components are
+flavor-2 and flavor-3, and flavor-2's components are flavor-4 and flavor-5, and flavor-3's
+component was flavor-4, then the complete list of components of flavor-1 would be:  
+
+        flavor-1, flavor-2, flavor-4, flavor-5, flavor-3
+
+     The flavors earlier in this list are the more specific, less basic ones; in our example,
+ship-with-passengers would be first in the list, followed by ship, followed by moving-object.  A
+flavor is always the first in the list of its own components.  Notice that flavor-4 does not appear
+twice in this list.  Only the first occurrence of a flavor appears; duplicates are removed.  (The
+elimination of duplicates is done during the walk; if there is a cycle in the directed graph, it does not
+cause a non-terminating computation.)
+
+     The set of instance variables for the new flavor is the union of all the sets of instance
+variables in all the component flavors.  If both flavor-2 and flavor-3 have instance variables named
+foo, then flavor-1 has an instance variable named foo, and any methods that refer to foo refer to
+this same instance variable.  Thus different components of a flavor can communicate with one
+another using shared instance variables.  (Typically, only one component ever sets the variable; the
+others only look at it.) The default initial value for an instance variable comes from the first
+component flavor to specify one.
+
+     The way the methods of the components are combined is the heart of the flavor system.  When
+a flavor is defined, a single function, called a combined method, is constructed for each operation
+supported by the flavor.  This function is constructed out of all the methods for that operation from
+all the components of the flavor.  There are many different ways that methods can be combined;
+these can be selected by the user when a flavor is defined.  The user can also create new forms of
+combination.
+
+     There are several kinds of methods, but so far, the only kinds of methods we have seen are
+primary methods.  The default way primary methods are combined is that all but the earliest one
+provided are ignored.  In other words, the combined method is simply the primary method of the first
+flavor to provide a primary method.  What this means is that if you are starting with a flavor foo and
+building a flavor bar on top of it, then you can override foo's method for an operation by providing
+your own method.  Your method will be called, and foo's will never be called.
+
+     Simple overriding is often useful; for example, if you want to make a new flavor bar that is just
+like foo except that it reacts completely differently to a few operations.  However, often you don't
+want to completely override the base flavor's (foo's) method; sometimes you want to add some extra
+things to be done.  This is where combination of methods is used.
+
+     The usual way methods are combined is that one flavor provides a primary method, and other
+flavors provide daemon methods.  The idea is that the primary method is ``in charge'' of the main
+business of handling the operation, but other flavors just want to keep informed that the message
+was sent, or just want to do the part of the operation associated with their own area of
+responsibility.
+
+     daemon methods come in two kinds, before and after.  There is a special syntax in defmethod
+for defining such methods.  Here is an example of the syntax.  To give the ship flavor an
+after-daemon method for the :speed operation, the following syntax would be used:  
+
+        (defmethod (ship :after :speed) () body)
+
+     Now, when a message is sent, it is handled by a new function called the combined method.  The
+combined method first calls all of the before daemons, then the primary method, then all the after
+daemons.  Each method is passed the same arguments that the combined method was given.  The
+returned values from the combined method are the values returned by the primary method; any
+values returned from the daemons are ignored.  Before-daemons are called in the order that flavors
+are combined, while after-daemons are called in the reverse order.  In other words, if you build bar
+on top of foo, then bar's before-daemons run before any of those in foo, and bar's after-daemons
+run after any of those in foo.
+
+     The reason for this order is to keep the modularity order correct.  If we create flavor-1 built on
+flavor-2, then it should not matter what flavor-2 is built out of.  Our new before-daemons go
+before all methods of flavor-2, and our new after-daemons go after all methods of flavor-2.  Note
+that if you have no daemons, this reduces to the form of combination described above.  The most
+recently added component flavor is the highest level of abstraction; you build a higher-level object
+on top of a lower-level object by adding new components to the front.  The syntax for defining
+daemon methods can be found in the description of defmethod below.
+
+     To make this a bit more clear, let's consider a simple example that is easy to play with:  the
+:print-self method.  The Lisp printer (i.e.  the print function; see
+(READPRINT-1)What the Printer Produces) prints instances of flavors by sending them :print-self
+messages.  The first argument to the :print-self operation is a stream (we can ignore the others for
+now), and the receiver of the message is supposed to print its printed representation on the stream.
+In the ship example above, the reason that instances of the ship flavor printed the way they did is
+because the ship flavor was actually built on top of a very basic flavor called vanilla-flavor; this
+component is provided automatically by defflavor.  It was vanilla-flavor's :print-self method that was
+doing the printing.  Now, if we give ship its own primary method for the :print-self operation, then
+that method completely takes over the job of printing; vanilla-flavor's method will not be called at all.
+However, if we give ship a before-daemon method for the :print-self operation, then it will get
+invoked before the vanilla-flavor method, and so whatever it prints will appear before what
+vanilla-flavor prints.  So we can use before-daemons to add prefixes to a printed representation;
+similarly, after-daemons can add suffixes.
+
+     There are other ways to combine methods besides daemons, but this way is the most common.
+The more advanced ways of combining methods are explained in a later section; see
+(FLAVOR-4)Method Combination.  vanilla-flavor and what it does for you are also explained
+later; see (FLAVOR-4)Vanilla Flavor.
+
+=Node: Flavor Functions
+
+=Text:
+FLAVOR FUNCTIONS
+
+defflavor                                                                                        Macro        
+        A flavor is defined by a form 
+
+                (defflavor flavor-name (var1 var2...) (flav1 flav2...)
+                        opt1 opt2...)
+
+        flavor-name is a symbol which serves to name this flavor.  It is given an si:flavor property
+        which is the internal data-structure containing the details of the flavor.
+
+        (type-of obj), where obj is an instance of the flavor named flavor-name, returns the symbol
+        flavor-name.  (typep obj flavor-name) is t if obj is an instance of a flavor, one of whose
+        components (possibly itself) is flavor-name.
+
+        var1, var2, etc.  are the names of the instance-variables containing the local state for this
+        flavor.  A list of the name of an instance-variable and a default initialization form is also
+        acceptable; the initialization form is evaluated when an instance of the flavor is created if no
+        other initial value for the variable is obtained.  If no initialization is specified, the variable
+        remains void.
+
+        flav1, flav2, etc.  are the names of the component flavors out of which this flavor is built.
+        The features of those flavors are inherited as described previously.
+
+        opt1, opt2, etc.  are options; each option may be either a keyword symbol or a list of a
+        keyword symbol and arguments.  The options to defflavor are described in
+        (FLAVOR-3)Defflavor Options.  
+
+*all-flavor-names*                                                                        Variable        
+        A list of the names of all the flavors that have ever been defflavor'ed.  
+
+defmethod                                                                                        Macro        
+        A method, that is, a function to handle a particular operation for instances of a particular
+        flavor, is defined by a form such as 
+
+                (defmethod (flavor-name method-type operation) lambda-list
+                  form1 form2...)
+
+        flavor-name is a symbol which is the name of the flavor which is to receive the method.
+        operation is a keyword symbol which names the operation to be handled.  method-type is a
+        keyword symbol for the type of method; it is omitted when you are defining a primary method.
+        For some method-types, additional information is expected.  It comes after operation.
+
+        The meaning of method-type depends on what style of method combination is declared for
+        this operation.  For instance, if :daemon combination (the default style) is in use, method types
+        :before and :after are allowed.  See (FLAVOR-4)Method Combination for a complete
+        description of method types and the way methods are combined.
+
+        lambda-list describes the arguments and aux variables of the function; the first argument to
+        the method, which is the operation name itself, is automatically handled and so is not included
+        in the lambda-list.  Note that methods may not have unevaluated (&quote) arguments; that is,
+        they must be functions, not special forms.  form1, form2, etc.  are the function body; the
+        value of the last form is returned.
+
+        The variant form 
+
+                (defmethod (flavor-name operation) function)
+
+        where function is a symbol, says that flavor-name's method for operation is function, a
+        symbol which names a function.  That function must take appropriate arguments; the first
+        argument is the operation.  When the function is called, self will be bound.
+
+        If you redefine a method that is already defined, the old definition is replaced by the new one.
+        Given a flavor, an operation name, and a method type, there can only be one function (with
+        the exception of :case methods; see (FLAVOR-4)Method Combination), so if you define a
+        :before daemon method for the foo flavor to handle the :bar operation, then you replace the
+        previous before-daemon; however, you do not affect the primary method or methods of any
+        other type, operation or flavor.
+
+        The function spec for a method (see (FUNCTIONS-1)Function Specs) looks like:  
+
+                (:method flavor-name operation)  or
+                (:method flavor-name method-type operation)  or
+                (:method flavor-name method-type operation suboperation)
+
+        This is useful to know if you want to trace ((DEBUGGING-5)Tracing Function Execution),
+        breakon ((DEBUGGING-5)Breakon) or advise ((DEBUGGING-5)Advising a Function) 
+        a method, or if you want to poke around at the method function itself, e.g. disassemble it (see
+        (MISCELL-1)Poking Around in the Lisp World).  
+
+make-instance flavor-name init-option1 value1 init-option2 value2...                                   
+        Creates and returns an instance of the specified flavor.  Arguments after the first are
+        alternating init-option keywords and arguments to those keywords.  These options are used
+        to initialize instance variables and to select arbitrary options, as described above.  An :init
+        message is sent to the newly-created object with one argument, the init-plist.  This is a
+        disembodied property-list containing the init-options specified and those defaulted from the
+        flavor's :default-init-plist (however, init keywords that simply initialize instance variables, and
+        the corresponding values, may be absent when the :init methods are called).  make-instance is
+        an easy-to-call interface to instantiate-flavor, below.
+
+        If :allow-other-keys is used as an init keyword with a non-nil value, this error check is
+        suppressed.  Then unrecognized keywords are simply ignored.  Example:  
+
+                (make-instance 'foo :lose 5 :allow-other-keys t)
+
+        specifies the init keyword :lose, but prevents an error should the keyword not be handled.  
+
+instantiate-flavor flavor-name init-plist &optional send-init-message-p return-unhandled-keywords
+	                   area
+        This is an extended version of make-instance, giving you more features.  Note that it takes
+        the init-plist as an individual argument, rather than taking a rest argument of init options and
+        values.
+
+        The init-plist argument must be a disembodied property list; locf of a rest argument is
+        satisfactory.  Beware! This property list can be modified; the properties from the default init
+        plist are putprop'ed on if not already present, and some :init methods do explicit putprop's
+        onto the init-plist.
+
+        In the event that :init methods remprop properties already on the init-plist (as opposed to
+        simply doing get and putprop), then the init-plist is rplacd'ed.  This means that the actual
+        supplied list of options is modified.  It also means that locf of a rest argument does not work;
+        the caller of instantiate-flavor must copy its rest argument (e.g.  with copylist); this is
+        because rplacd is not allowed on stack lists.
+
+        Do not use nil as the init-plist argument.  This would mean to use the properties of the
+        symbol nil as the init options.  If your goal is to have no init options, you must provide a
+        property list containing no properties, such as the list (nil).
+
+        Here is the sequence of actions by which instantiate-flavor creates a new instance:
+
+        First, the specified flavor's instantiation flavor function ((FLAVOR-3)Defflavor Options), if
+        it exists, is called to determine which flavor should actually be instantiated.  If there is no
+        instantiation flavor function, the specified flavor is instantiated.
+
+        If the flavor's method hash-table and other internal information have not been computed or
+        are not up to date, they are computed.  This may take a substantial amount of time or even
+        invoke the compiler, but it happens only once for each time you define or redefine a particular
+        flavor.
+
+        Next, the instance itself is created.  If the area argument is specified, it is the number of an
+        area in which to cons the instance; otherwise the flavor's instance area function is called to
+        choose an area if there is one; otherwise, default-cons-area is used.  See
+        (FLAVOR-3)Defflavor Options.
+
+        Then the initial values of the instance variables are computed.  If an instance variable is
+        declared inittable, and a keyword with the same spelling as its name appears in init-plist, the
+        property for that keyword is used as the initial value.
+
+        Otherwise, if the default init plist specifies such a property, it is evaluated and the value is
+        used.  Otherwise, if the flavor definition specifies a default initialization form, it is evaluated
+        and the value is used.  The initialization form may not refer to any instance variables.  It can
+        find the new instance in self but should not invoke any operations on it and should not refer
+        directly to any instance variables.  It can get at instance variables using accessor macros
+        created by the :outside-accessible-instance-variables option
+        ((FLAVOR-3)Defflavor Options) or the function symeval-in-instance
+        ((FLAVOR-2)Flavor Functions).
+
+        If an instance variable does not get initialized either of these ways it is left void; an :init
+        method may initialize it (see below).
+
+        All remaining keywords and values specified in the :default-init-plist option to defflavor, that
+        do not initialize instance variables and are not overridden by anything explicitly specified in
+        init-plist are then merged into init-plist using putprop.  The default init plist of the
+        instantiated flavor is considered first, followed by those of all the component flavors in the
+        standard order.  See (FLAVOR-3)Defflavor Options.
+
+        Then keywords appearing in the init-plist but not defined with the :init-keywords option or
+        the :inittable-instance-variables option for some component flavor are collected.  If the
+        :allow-other-keys option is specified with a non-nil value (either in the original init-plist
+        argument or by some default init plist) then these unhandled keywords are ignored.  If the
+        return-unhandled-keywords argument is non-nil, a list of these keywords is returned as the
+        second value of instantiate-flavor.  Otherwise, an error is signaled if any unrecognized init
+        keywords are present.
+
+        If the send-init-message-p argument is supplied and non-nil, an :init message is sent to the
+        newly-created instance, with one argument, the init-plist.  get can be used to extract options
+        from this property-list.  Each flavor that needs initialization can contribute an :init method by
+        defining a daemon.
+
+        The :init methods should not look on the init-plist for keywords that simply initialize instance
+        variables (that is, keywords defined with :inittable-instance-variables rather than
+        :init-keywords).  The corresponding instance variables are already set up when the :init
+        methods are called, and sometimes the keywords and their values may actually be missing
+        from the init-plist if it is more efficient not to put them on.  To avoid problems, always refer
+        to the instance variables themselves rather than looking for the init keywords that initialize
+        them.  
+
+:init init-plist                                                    Operation on all flavor instances        
+        This operation is implemented on all flavor instances.  Its purpose is to examine the init
+        keywords and perform whatever initializations are appropriate.  init-plist is the argument that
+        was given to instantiate-flavor, and may be passed directly to get to examine the value of
+        any particular init option.
+
+        The default definition of this operation does nothing.  However, many flavors add :before and
+        :after daemons to it.  
+
+instancep object                                                                                               
+        Returns t if object is an instance.  This is equivalent to (typep object 'instance).  
+
+defwrapper                                                                                       Macro        
+        This is hairy and if you don't understand it you should skip it.
+
+        Sometimes the way the flavor system combines the methods of different flavors (the daemon
+        system) is not powerful enough.  In that case defwrapper can be used to define a macro that
+        expands into code that is wrapped around the invocation of the methods.  This is best
+        explained by an example; suppose you needed a lock locked during the processing of the :foo
+        operation on flavor bar, which takes two arguments, and you have a lock-frobboz
+        special-form that knows how to lock the lock (presumably it generates an unwind-protect).
+        lock-frobboz needs to see the first argument to the operation; perhaps that tells it what sort
+        of operation is going to be performed (read or write).  
+
+                (defwrapper (bar :foo) ((arg1 arg2) . body)
+                  `(lock-frobboz (self arg1)
+                     . ,body))
+
+        The use of the body macro-argument prevents the macro defined by defwrapper from
+        knowing the exact implementation and allows several defwrapper's from different flavors to be
+        combined properly.
+
+        Note well that the argument variables, arg1 and arg2, are not referenced with commas before
+        them.  These may look like defmacro ``argument'' variables, but they are not.  Those variables
+        are not bound at the time the defwrapper-defined macro is expanded and the back-quoting is
+        done; rather the result of that macro-expansion and back-quoting is code which, when a
+        message is sent, will bind those variables to the arguments in the message as local variables
+        of the combined method.
+
+        Consider another example.  Suppose you thought you wanted a :before daemon, but found
+        that if the argument was nil you needed to return from processing the message immediately,
+        without executing the primary method.  You could write a wrapper such as 
+
+                (defwrapper (bar :foo) ((arg1) . body)
+                  `(cond ((null arg1))
+                         (t (print "About to do :FOO")
+                            . ,body)))
+
+        Suppose you need a variable for communication among the daemons for a particular
+        operation; perhaps the :after daemons need to know what the primary method did, and it is
+        something that cannot be easily deduced from just the arguments.  You might use an instance
+        variable for this, or you might create a special variable which is bound during the processing
+        of the operation and used free by the methods.  
+
+                (defvar *communication*)
+                (defwrapper (bar :foo) (ignore . body)
+                  `(let ((*communication* nil))
+                     . ,body))
+
+        Similarly you might want a wrapper that puts a catch around the processing of an operation
+        so that any one of the methods could throw out in the event of an unexpected condition.
+
+        Like daemon methods, wrappers work in outside-in order; when you add a defwrapper to a
+        flavor built on other flavors, the new wrapper is placed outside any wrappers of the
+        component flavors.  However, all wrappers happen before any daemons happen.  When the
+        combined method is built, the calls to the before-daemon methods, primary methods, and
+        after-daemon methods are all placed together, and then the wrappers are wrapped around
+        them.  Thus, if a component flavor defines a wrapper, methods added by new flavors execute
+        within that wrapper's context.
+
+        :around methods can do some of the same things that wrappers can.  See
+        (FLAVOR-4)Method Combination.  If one flavor defines both a wrapper and an :around
+        method for the same operation, the :around method is executed inside the wrapper.
+
+        By careful about inserting the body into an internal lambda-expression within the wrapper's
+        code.  Doing so interacts with the internals of the flavor system and requires knowledge of
+        things not documented in the manual in order to work properly.  It is much simpler to use an
+        :around method instead.  
+
+undefmethod (flavor [type] operation [suboperation])                                    Macro        
+        -remove-this-mt 
+
+                (undefmethod (flavor :before :operation))
+        removes the method created by
+                (defmethod (flavor :before :operation) (args) ...)
+
+        To remove a wrapper, use undefmethod with :wrapper as the method type.
+
+        undefmethod is simply an interface to fundefine (see
+        (FUNCTIONS-2)How Programs Manipulate Function Specs) that accepts the same syntax
+        as defmethod.
+
+        If a file that used to contain a method definition is reloaded and if that method no longer
+        seems to have a definition in the file, the user is asked whether to undefmethod that method.
+        This may be important to enable the modified program to inherit the methods it is supposed to
+        inherit.  If the method in question has been redefined by some other file, this is not done, the
+        assumption being that the definition was merely moved.  
+
+undefflavor flavor                                                                                             
+        Undefines flavor flavor.  All methods of the flavor are lost.  flavor and all flavors that depend
+        on it are no longer valid to instantiate.
+
+        If instances of the discarded definition exist, they continue to use that definition.  
+
+self                                                                                             Variable        
+        When a message is sent to an object, the variable self is automatically bound to that object,
+        for the benefit of methods which want to manipulate the object itself (as opposed to its
+        instance variables).  
+
+funcall-self operation arguments...                                                                        
+lexpr-funcall-self operation arguments... list-of-arguments                                          
+        funcall-self is nearly equivalent to funcall with self as the first argument.  funcall-self used to
+        be faster, but now funcall of self is just as fast.  Therefore, funcall-self is obsolete.  It
+        should be replaced with funcall or send of self.
+
+        Likewise, lexpr-funcall-self should be replaced with use of lexpr-send to self.  
+
+funcall-with-mapping-table function mapping-table &rest arguments                              
+        Applies function to arguments with sys:self-mapping-table bound to mapping-table.  This is
+        faster than binding the variable yourself and doing an ordinary funcall, because the system
+        assumes that the mapping table you specify is the correct one for function to be run with.
+        However, if you pass the wrong mapping table, incorrect execution will take place.
+
+        This function is used in the code for combined methods and is also useful for the user in
+        :around methods (see (FLAVOR-4)Method Combination).  
+
+lexpr-funcall-with-mapping-table function mapping-table &rest arguments                     
+        Applies function to arguments using lexpr-funcall, with sys:self-mapping-table bound to
+        mapping-table.  
+
+declare-flavor-instance-variables (flavor) body...                                  Macro        
+        Sometimes it is useful to have a function which is not itself a method, but which is to be
+        called by methods and wants to be able to access the instance variables of the object self.
+        The form 
+
+                (declare-flavor-instance-variables (flavor-name)
+                  (defun function args body...))
+
+        surrounds the function definition with a peculiar kind of declaration which makes the instance
+        variables of flavor flavor-name accessible by name.  Any kind of function definition is
+        allowed; it does not have to use defun per se.
+
+        If you call such a function when self's value is an instance whose flavor does not include
+        flavor-name as a component, it is an error.
+
+        Cleaner than using declare-flavor-instance-variables, because it does not involve putting
+        anything around the function definition, is using a local declaration.  Put (declare (:self-flavor
+        flavorname)) as the first expression in the body of the function.  For example:  
+
+                (defun foo (a b)
+                  (declare (:self-flavor myobject))
+                  (+ a (* b speed)))
+
+        (where speed is an instance variable of the flavor myobject) is equivalent to 
+
+                (declare-flavor-instance-variables (myobject)
+                (defun foo (a b)
+                  (+ a (* b speed))))
+
+with-self-variables-bound body...                                                 Special Form        
+        Within the body of this special form, all of self's instance variables are bound as specials to
+        the values inside self.  (Normally this is true only of those instance variables that are
+        specified in :special-instance-variables when self's flavor was defined.) As a result, inside the
+        body you can use set, boundp and symeval, etc., freely on the instance variables of self.  
+
+recompile-flavor flavor-name &optional single-operation (use-old-combined-methods t)
+	(do-dependents t)
+        Updates the internal data of the flavor and any flavors that depend on it.  If single-operation
+        is supplied non-nil, only the methods for that operation are changed.  The system does this
+        when you define a new method that did not previously exist.  If use-old-combined-methods is
+        t, then the existing combined method functions are used if possible.  New ones are generated
+        only if the set of methods to be called has changed.  This is the default.  If
+        use-old-combined-methods is nil, automatically-generated functions to call multiple methods or
+        to contain code generated by wrappers are regenerated unconditionally.  If do-dependents is
+        nil, only the specific flavor you specified is recompiled.  Normally all flavors that depend on it
+        are also recompiled.
+
+        recompile-flavor affects only flavors that have already been compiled.  Typically this means
+        it affects flavors that have been instantiated, but does not bother with mixins (see
+        (FLAVOR-4)Flavor Families).  
+
+si:*dont-recompile-flavors*                                                           Variable        
+        If this variable is non-nil, automatic recompilation of combined methods is turned off.
+
+        If you wish to make several changes each of which will cause recompilation of the same
+        combined methods, you can use this variable to speed things up by making the recompilations
+        happen only once.  Set the variable to t, make your changes, and then set the variable back
+        to nil.  Then use recompile-flavor to recompile whichever combined methods need it.  For
+        example:  
+
+                (setq si:*dont-recompile-flavors* t)
+                (undefmethod (tv:sheet :after :bar))
+                (defmethod (tv:sheet :before :bar) ...)
+                (setq si:*dont-recompile-flavors* nil)
+                (recompile-flavor 'tv:sheet :bar)
+
+        tv:sheet has very many dependents; recompile-flavor even once takes painfully long.  It's
+        nice to avoid spending the time twice.  
+
+compile-flavor-methods flavor...                                                            Macro        
+        The form (compile-flavor-methods flavor-name-1 flavor-name-2...), placed in a file to be
+        compiled, directs the compiler to include the automatically-generated combined methods for
+        the named flavors in the resulting QFASL file, provided all of the necessary flavor definitions
+        have been made.  Furthermore, all internal data structures needed to instantiate the flavor will
+        be computed when the QFASL file is loaded rather than waiting until the first attempt to
+        instantiate it.
+
+        This means that the combined methods get compiled at compile time and the data structures
+        get generated at load time, rather than both things happening at run time.  This is a very good
+        thing, since if the the compiler must be invoked at run time, the program will be slow the first
+        time it is run.  (The compiler must be called in any case if incompatible changes have been
+        made, such as addition or deletion of methods that must be called by a combined method.)
+
+        You should only use compile-flavor-methods for flavors that are going to be instantiated.
+        For a flavor that is never to be instantiated (that is, a flavor that only serves to be a
+        component of other flavors that actually do get instantiated), it is a complete waste of time,
+        except in the unusual case where those other flavors can all inherit the combined methods of
+        this flavor instead of each one having its own copy of a combined method which happens to
+        be identical to the others.  In this unusual case, you should use the :abstract-flavor option in
+        defflavor ((FLAVOR-3)Defflavor Options).
+
+        The compile-flavor-methods forms should be compiled after all of the information needed to
+        create the combined methods is available.  You should put these forms after all of the
+        definitions of all relevant flavors, wrappers, and methods of all components of the flavors
+        mentioned.
+
+        The methods used by compile-flavor-methods to form the combined methods that go in the
+        QFASL file are all those present in the file being compiled and all those defined in the Lisp
+        world.
+
+        When a compile-flavor-methods form is seen by the interpreter, the combined methods are
+        compiled and the internal data structures are generated.  
+
+get-handler-for object operation                                                                          
+        Given an object and an operation, this returns the object's method for that operation, or nil if
+        it has none.  When object is an instance of a flavor, this function can be useful to find which
+        of that flavor's components supplies the method.  If you get back a combined method, you
+        can use the Meta-X List Combined Methods editor command
+        ((FLAVOR-5)Useful Editor Commands) to find out what it does.
+
+        This is related to the :handler function spec (see (FUNCTIONS-1)Function Specs).
+
+        It is preferable to use the generic operation :get-handler-for.  
+
+flavor-allows-init-keyword-p flavor-name keyword                                                  
+        Returns non-nil if the flavor named flavor-name allows keyword in the init options when it is
+        instantiated, or nil if it does not.  The non-nil value is the name of the component flavor that
+        contributes the support of that keyword.  
+
+si:flavor-all-allowed-init-keywords flavor-name                                                  
+        Returns a list of all the init keywords that may be used in instantiating flavor-name.  
+
+symeval-in-instance instance symbol &optional no-error-p                                            
+        Returns the value of the instance variable symbol inside instance.  If there is no such instance
+        variable, an error is signaled, unless no-error-p is non-nil in which case nil is returned.  
+
+set-in-instance instance symbol value                                                                    
+        Sets the value of the instance variable symbol inside instance to value.  If there is no such
+        instance variable, an error is signaled.  
+
+locate-in-instance instance symbol                                                                      
+        Returns a locative pointer to the cell inside instance which holds the value of the instance
+        variable named symbol.  
+
+describe-flavor flavor-name                                                                                
+        Prints descriptive information about a flavor; it is self-explanatory.  An important thing it tells
+        you that can be hard to figure out yourself is the combined list of component flavors; this list
+        is what is printed after the phrase `and directly or indirectly depends on'.  
+
+si:*flavor-compilations*                                                               Variable        
+        Contains a history of when the flavor mechanism invoked the compiler.  It is a list; elements
+        toward the front of the list represent more recent compilations.  Elements are typically of the
+        form 
+
+                (function-spec pathname)
+
+        where the function spec starts with :method and has a method type of :combined.
+
+        You may setq this variable to nil at any time; for instance before loading some files that you
+        suspect may have missing or obsolete compile-flavor-methods in them.  
+
+sys:unclaimed-message (error)                                                      Condition        
+        This condition is signaled whenever a flavor instance is sent a message whose operation it
+        does not handle.  The condition instance supports these operations:  
+
+        :object      The flavor instance that received the message.  
+
+        :operation   The operation that was not handled.  
+
+        :arguments  
+                      The list of arguments to that operation 
+

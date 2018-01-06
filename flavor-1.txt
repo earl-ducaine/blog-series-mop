@@ -1,0 +1,527 @@
+;;; -*- Mode:gate; Fonts:(HL12 HL12I HL12B CPTFONTB HL12BI HL12B HL12I ) -*-
+
+=Node: Introduction
+
+=Text:
+INTRODUCTION
+
+     The object-oriented programming style used in the Smalltalk and Actor families of languages is
+available in Zetalisp and used by the Lisp Machine software system.  Its purpose is to perform
+generic operations on objects.  Part of its implementation is simply a convention in procedure-calling
+style; part is a powerful language feature, called Flavors, for defining abstract objects.  This chapter
+attempts to explain what programming with objects and with message passing means, the various
+means of implementing these in Zetalisp, and when you should use them.  It assumes no prior
+knowledge of any other languages.
+
+=Node: Objects
+
+=Text:
+OBJECTS
+
+     When writing a program, it is often convenient to model what the program does in terms of
+objects, conceptual entities that can be likened to real-world things.  Choosing what objects to
+provide in a program is very important to the proper organization of the program.  In an
+object-oriented design, specifying what objects exist is the first task in designing the system.  In a
+text editor, the objects might be ``pieces of text'', ``pointers into text'', and ``display windows''.  In an
+electrical design system, the objects might be ``resistors'', ``capacitors'', ``transistors'', ``wires'', and
+``display windows''.  After specifying what objects there are, the next task of the design is to figure
+out what operations can be performed on each object.  In the text editor example, operations on
+``pieces of text'' might include inserting text and deleting text; operations on ``pointers into text'' might
+include moving forward and backward; and operations on ``display windows'' might include redisplaying
+the window and changing which ``piece of text'' the window is associated with.
+
+     In this model, we think of the program as being built around a set of objects, each of which has
+a set of operations that can be performed on it.  More rigorously, the program defines several types
+of object (the editor above has three types), and it can create many instances of each type (that is,
+there can be many pieces of text, many pointers into text, and many windows).  The program defines
+a set of types of object and, for each type, a set of operations that can be performed on any
+object of the type.
+
+     The new types may exist only in the programmer's mind.  For example, it is possible to think of a
+disembodied property list as an abstract data type on which certain operations such as get and
+putprop are defined.  This type can be instantiated with (cons nil nil) (that is, by evaluating this form
+you can create a new disembodied property list); the operations are invoked through functions
+defined just for that purpose.  The fact that disembodied property lists are really implemented as
+lists, indistinguishable from any other lists, does not invalidate this point of view.  However, such
+conceptual data types cannot be distinguished automatically by the system; one cannot ask ``is this
+object a disembodied property list, as opposed to an ordinary list''.
+
+     The defstruct for ship early in the Defstruct chapter defines another conceptual type.
+defstruct automatically defines some operations on this object, the operations to access its
+elements.  We could define other functions that did useful things with ship's, such as computing their
+speed, angle of travel, momentum, or velocity, stopping them, moving them elsewhere, and so on.
+
+     In both cases, we represent our conceptual object by one Lisp object.  The Lisp object we use
+for the representation has structure and refers to other Lisp objects.  In the disembodied property
+list case, the Lisp object is a list of pairs; in the ship case, the Lisp object is an array whose details
+are taken care of by defstruct.  In both cases, we can say that the object keeps track of an
+internal state, which can be examined and altered by the operations available for that type of
+object.  get examines the state of a property list, and putprop alters it; ship-x-position examines the
+state of a ship, and (setf (ship-x-position ship) 5.0) alters it.
+
+     We have now seen the essence of object-oriented programming.  A conceptual object is
+modeled by a single Lisp object, which bundles up some state information.  For every type of object,
+there is a set of operations that can be performed to examine or alter the state of the object.
+
+=Node: Modularity
+
+=Text:
+MODULARITY
+
+     An important benefit of the object-oriented style is that it lends itself to a particularly simple and
+lucid kind of modularity.  If you have modular programming constructs and techniques available, they
+help and encourage you to write programs that are easy to read and understand, and so are more
+reliable and maintainable.  Object-oriented programming lets a programmer implement a useful facility
+that presents the caller with a set of external interfaces, without requiring the caller to understand
+how the internal details of the implementation work.  In other words, a program that calls this facility
+can treat the facility as a black box; the program knows what the facility's external interfaces
+guarantee to do, and that is all it knows.
+
+     For example, a program that uses disembodied property lists never needs to know that the
+property list is being maintained as a list of alternating indicators and values; the program simply
+performs the operations, passing them inputs and getting back outputs.  The program only depends
+on the external definition of these operations:  it knows that if it putprop's a property, and doesn't
+remprop it (or putprop over it), then it can do get and be sure of getting back the same thing it put
+in.  The important thing about this hiding of the details of the implementation is that someone reading
+a program that uses disembodied property lists need not concern himself with how they are
+implemented; he need only understand what they undertake to do.  This saves the programmer a lot
+of time and lets him concentrate his energies on understanding the program he is working on.
+Another good thing about this hiding is that the representation of property lists could be changed and
+the program would continue to work.  For example, instead of a list of alternating elements, the
+property list could be implemented as an association list or a hash table.  Nothing in the calling
+program would change at all.
+
+     The same is true of the ship example.  The caller is presented with a collection of operations,
+such as ship-x-position, ship-y-position, ship-speed, and ship-direction; it simply calls these and
+looks at their answers, without caring how they did what they did.  In our example above,
+ship-x-position and ship-y-position would be accessor functions, defined automatically by defstruct,
+while ship-speed and ship-direction would be functions defined by the implementor of the ship type.
+The code might look like this:
+
+        (defstruct (ship :conc-name)
+          x-position
+          y-position
+          x-velocity
+          y-velocity
+          mass)
+
+        (defun ship-speed (ship)
+          (sqrt (+ (^ (ship-x-velocity ship) 2)
+                   (^ (ship-y-velocity ship) 2))))
+
+        (defun ship-direction (ship)
+          (atan2 (ship-y-velocity ship)
+                 (ship-x-velocity ship)))
+
+     The caller need not know that the first two functions were structure accessors and that the
+second two were written by hand and do arithmetic.  Those facts would not be considered part of
+the black box characteristics of the implementation of the ship type.  The ship type does not
+guarantee which functions will be implemented in which ways; such aspects are not part of the
+contract between ship and its callers.  In fact, ship could have been written this way instead:
+
+        (defstruct (ship :conc-name)
+          x-position
+          y-position
+          speed
+          direction
+          mass)
+
+        (defun ship-x-velocity (ship)
+          (* (ship-speed ship) (cos (ship-direction ship))))
+
+        (defun ship-y-velocity (ship)
+          (* (ship-speed ship) (sin (ship-direction ship))))
+
+     In this second implementation of the ship type, we have decided to store the velocity in polar
+coordinates instead of rectangular coordinates.  This is purely an implementation decision.  The caller
+has no idea which of the two ways the implementation uses; he just performs the operations on the
+object by calling the appropriate functions.
+
+     We have now created our own types of objects, whose implementations are hidden from the
+programs that use them.  Such types are usually referred to as abstract types.  The object-oriented
+style of programming can be used to create abstract types by hiding the implementation of the
+operations and simply documenting what the operations are defined to do.
+
+     Some more terminology:  the quantities being held by the elements of the ship structure are
+referred to as instance variables.  Each instance of a type has the same operations defined on it;
+what distinguishes one instance from another (besides eq-ness) is the values that reside in its
+instance variables.  The example above illustrates that a caller of operations does not know what the
+instance variables are; our two ways of writing the ship operations have different instance variables,
+but from the outside they have exactly the same operations.
+
+     One might ask:  ``But what if the caller evaluates (aref ship 2) and notices that he gets back the
+x velocity rather than the speed? Then he can tell which of the two implementations were used.''
+This is true; if the caller were to do that, he could tell.  However, when a facility is implemented in
+the object-oriented style, only certain functions are documented and advertised, the functions that
+are considered to be operations on the type of object.  The contract from ship to its callers only
+speaks about what happens if the caller calls these functions.  The contract makes no guarantees at
+all about what would happen if the caller were to start poking around on his own using aref.  A caller
+who does so is in error; he is depending on something that is not specified in the contract.  No
+guarantees were ever made about the results of such action, and so anything may happen; indeed,
+ship may get reimplemented overnight, and the code that does the aref will have a different effect
+entirely and probably stop working.  This example shows why the concept of a contract between a
+callee and a caller is important:  the contract specifies the interface between the two modules.
+
+     Unlike some other languages that provide abstract types, Zetalisp makes no attempt to have the
+language automatically forbid constructs that circumvent the contract.  This is intentional.  One
+reason for this is that the Lisp Machine is an interactive system, and so it is important to be able to
+examine and alter internal state interactively (usually from a debugger).  Furthermore, there is no
+strong distinction between the ``system'' programs and the ``user'' programs on the Lisp Machine;
+users are allowed to get into any part of the language system and change what they want to
+change.  Another reason is the traditional MIT AI Lab philosophy that opposes ``fascist'' restrictions
+which impose on the user ``for his own good''.  The user himself should decide what is good for him.
+
+     In summary:  by defining a set of operations and making only a specific set of external
+entrypoints available to the caller, the programmer can create his own abstract types.  These types
+can be useful facilities for other programs and programmers.  Since the implementation of the type is
+hidden from the callers, modularity is maintained and the implementation can be changed easily.
+
+     We have hidden the implementation of an abstract type by making its operations into functions
+which the user may call.  The important thing is not that they are functions--in Lisp everything is
+done with functions.  The important thing is that we have defined a new conceptual operation and
+given it a name, rather than requiring anyone who wants to do the operation to write it out
+step-by-step.  Thus we say (ship-x-velocity s) rather than (aref s 2).
+
+     Often a few abstract operation functions are simple enough that it is desirable to compile special
+code for them rather than really calling the function.  (Compiling special code like this is often called
+open-coding.) The compiler is directed to do this through use of macros, substs, or optimizers.
+defstruct arranges for this kind of special compilation for the functions that get the instance
+variables of a structure.
+
+     When we use this optimization, the implementation of the abstract type is only hidden in a certain
+sense.  It does not appear in the Lisp code written by the user, but does appear in the compiled
+code.  The reason is that there may be some compiled functions that use the macros (or whatever);
+even if you change the definition of the macro, the existing compiled code will continue to use the
+old definition.  Thus, if the implementation of a module is changed programs that use it may need to
+be recompiled.  This is something we sometimes accept for the sake of efficiency.
+
+     In the present implementation of flavors, which is discussed below, there is no such compiler
+incorporation of nonmodular knowledge into a program, except when the :ordered-instance-variables
+feature is used; see (FLAVOR-3)Defflavor Options, where this problem is explained further.  If
+you don't use the :ordered-instance-variables feature, you don't have to worry about this.
+
+=Node: Generic Operations
+
+=Text:
+GENERIC OPERATIONS
+
+     Suppose we think about the rest of the program that uses the ship abstraction.  It may want to
+deal with other objects that are like ship's in that they are movable objects with mass, but unlike
+ships in other ways.  A more advanced model of a ship might include the concept of the ship's
+engine power, the number of passengers on board, and its name.  An object representing a meteor
+probably would not have any of these, but might have another attribute such as how much iron is in
+it.
+
+     However, all kinds of movable objects have positions, velocities, and masses, and the system
+will contain some programs that deal with these quantities in a uniform way, regardless of what kind
+of object the attributes apply to.  For example, a piece of the system that calculates every object's
+orbit in space need not worry about the other, more peripheral attributes of various types of objects;
+it works the same way for all objects.  Unfortunately, a program that tries to calculate the orbit of a
+ship needs to know the ship's attributes, and must therefore call ship-x-position and ship-y-velocity
+and so on.  The problem is that these functions won't work for meteors.  There would have to be a
+second program to calculate orbits for meteors that would be exactly the same, except that where
+the first one calls ship-x-position, the second one would call meteor-x-position, and so on.  This
+would be very bad; a great deal of code would have to exist in multiple copies, all of it would have
+to be maintained in parallel, and it would take up space for no good reason.
+
+     What is needed is an operation that can be performed on objects of several different types.  For
+each type, it should do the thing appropriate for that type.  Such operations are called generic
+operations.  The classic example of generic operations is the arithmetic functions in most
+programming languages, including Zetalisp.  The + (or plus) function accepts integers, floats, ratios
+and complex numbers, and perform an appropriate kind of addition, based on the data types of the
+objects being manipulated.  In our example, we need a generic x-position operation that can be
+performed on either ship's, meteor's, or any other kind of mobile object represented in the system.
+This way, we can write a single program to calculate orbits.  When it wants to know the x position
+of the object it is dealing with, it simply invokes the generic x-position operation on the object, and
+whatever type of object it has, the correct operation is performed, and the x position is returned.
+
+     Another terminology for the use of such generic operations has emerged from the Smalltalk
+language:  performing a generic operation is called sending a message.  The message consists of an
+operation name (a symbol) and arguments.  The objects in the program are thought of as little
+people, who get sent messages and respond with answers (returned values).  In the example above,
+the objects are sent x-position messages, to which they respond with their x position.
+
+     Sending a message is a way of invoking a function without specifying which function is to be
+called.  Instead, the data determines the function to use.  The caller specifies an operation name and
+an object; that is, it said what operation to perform, and what object to perform it on.  The function
+to invoke is found from this information.
+
+     The two data used to figure out which function to call are the type of the object, and the name
+of the operation.  The same set of functions are used for all instances of a given type, so the type
+is the only attribute of the object used to figure out which function to call.  The rest of the message
+besides the operation is data which are passed as arguments to the function, so the operation is the
+only part of the message used to find the function.  Such a function is called a method.  For
+example, if we send an x-position message to an object of type ship, then the function we find is
+``the ship type's x-position method''.  A method is a function that handles a specific operation on a
+specific kind of object; this method handles messages named x-position to objects of type ship.
+
+     In our new terminology:  the orbit-calculating program finds the x position of the object it is
+working on by sending that object a message consisting of the operation x-position and no
+arguments.  The returned value of the message is the x position of the object.  If the object was of
+type ship, then the ship type's x-position method was invoked; if it was of type meteor, then the
+meteor type's x-position method was invoked.  The orbit-calculating program just sends the
+message, and the right function is invoked based on the type of the object.  We now have true
+generic functions, in the form of message passing:  the same operation can mean different things
+depending on the type of the object.
+
+=Node: Generic Operations in Lisp
+
+=Text:
+GENERIC OPERATIONS IN LISP
+
+     How do we implement message passing in Lisp? Our convention is that objects that receive
+messages are always functional objects (that is, you can apply them to arguments).  A message is
+sent to an object by calling that object as a function, passing the operation name as the first
+argument and the arguments of the message as the rest of the arguments.  Operation names are
+represented by symbols; normally these symbols are in the keyword package (see
+(PACKAGES-0)Packages), since messages are a protocol for communication between different 
+programs, which may reside in different packages.  So if we have a variable my-ship whose value 
+is an object of type ship, and we want to know its x position, we send it a message as follows:
+
+        (send my-ship :x-position)
+
+     To set the ship's x position to 3.0, we send it a message like this:
+
+        (send my-ship :set :x-position 3.0)
+
+     It should be stressed that no new features are added to Lisp for message sending; we simply
+define a convention on the way objects take arguments.  The convention says that an object
+accepts messages by always interpreting its first argument as an operation name.  The object must
+consider this operation name, find the function which is the method for that operation, and invoke
+that function.
+
+send object operation &rest arguments                                                                       
+        Sends object a message with operation and arguments as specified.  Currently send is
+        identical to funcall, but preferable when a message is being sent, just for clarity.
+
+        There are vague ideas of making send different from funcall if object is a symbol, list,
+        number, or other object that does not normally handle messages when funcalled, but the
+        meaning of this is not completely clear.  
+
+lexpr-send object operation &rest arguments                                                              
+        Currently lexpr-send is the same as apply.  
+
+     This raises the question of how message receiving works.  The object must somehow find the
+right method for the message it is sent.  Furthermore, the object now has to be callable as a
+function.  But an ordinary function will not do.  We need something that can store the instance
+variables (the internal state) of the object.  We need a function with internal state; that is, we need a
+coroutine.
+
+     Of the Zetalisp features presented so far, the most appropriate is the closure (see
+(CLOSURES-0)Closures).  A message-receiving object could be implemented as a closure over a 
+set of instance variables.  The function inside the closure would have a big selectq form to dispatch 
+on its first argument.  (Actually, rather than using closures and a selectq, you would probably use entities 
+((CLOSURES-1)Entities) and defselect ((FUNCTIONS-2)Function-Defining Special Forms).)
+
+     While using closures (or entities) does work, it has several serious problems.  The main problem
+is that in order to add a new operation to a system, it is necessary to modify a lot of code; you
+have to find all the types that understand that operation, and add a new clause to the selectq.  The
+problem with this is that you cannot textually separate the implementation of your new operation
+from the rest of the system; the methods must be interleaved with the other operations for the type.
+Adding a new operation should only require adding Lisp code; it should not require modifying Lisp
+code.
+
+     The conventional way of making generic operations is to have a procedure for each operation,
+which has a big selectq for all the types; this means you have to modify code to add a type.  The
+way described above is to have a procedure for each type, which has a big selectq for all the
+operations; this means you have to modify code to add an operation.  Neither of these has the
+desired property that extending the system should only require adding code, rather than modifying
+code.
+
+     Closures (and entities) are also somewhat clumsy and crude.  A far more streamlined,
+convenient, and powerful system for creating message-receiving objects exists; it is called the flavor
+mechanism.  With flavors, you can add a new method simply by adding code, without modifying
+anything.  Furthermore, many common and useful things are very easy to do with flavors.  The rest
+of this chapter describes flavors.
+
+=Node: Simple Use of Flavors
+
+=Text:
+SIMPLE USE OF FLAVORS
+
+     A flavor, in its simplest form, is a definition of an abstract type.  New flavors are created with
+the defflavor special form, and methods of the flavor are created with the defmethod special form.
+New instances of a flavor are created with the make-instance function.  This section explains simple
+uses of these forms.
+
+     For an example of a simple use of flavors, here is how the ship example above would be
+implemented.
+
+        (defflavor ship (x-position y-position 
+                         x-velocity y-velocity mass)
+                        ()
+          :gettable-instance-variables)
+
+        (defmethod (ship :speed) ()
+          (sqrt (+ (^ x-velocity 2)
+                   (^ y-velocity 2))))
+
+        (defmethod (ship :direction) ()
+          (atan2 y-velocity x-velocity))
+
+     The code above creates a new flavor.  The first subform of the defflavor is ship, which is the
+name of the new flavor.  Next is the list of instance variables; they are the five that should be
+familiar by now.  The next subform is something we will get to later.  The rest of the subforms are
+the body of the defflavor, and each one specifies an option about this flavor.  In our example, there
+is only one option, namely :gettable-instance-variables.  This means that for each instance variable,
+a method should automatically be generated to return the value of that instance variable.  The name
+of the operation is a symbol with the same name as the instance variable, but interned on the
+keyword package.  Thus, methods are created to handle the operations :x-position, :y-position, and
+so on.
+
+     Each of the two defmethod forms adds a method to the flavor.  The first one adds a handler to
+the flavor ship for the operation :speed.  The second subform is the lambda-list, and the rest is the
+body of the function that handles the :speed operation.  The body can refer to or set any instance
+variables of the flavor, just like variables bound by a containing let.  When any instance of the ship
+flavor is invoked with a first argument of :direction, the body of the second defmethod is evaluated
+in an environment in which the instance variables of ship refer to the instance variables of this
+instance (the one to which the message was sent).  So the arguments passed to cli:atan are the the
+velocity components of this particular ship.  The result of cli:atan becomes the value returned by the
+:direction operation.
+
+     Now we have seen how to create a new abstract type:  a new flavor.  Every instance of this
+flavor has the five instance variables named in the defflavor form, and the seven methods we have
+seen (five that were automatically generated because of the :gettable-instance-variables option, and
+two that we wrote ourselves).  The way to create an instance of our new flavor is with the
+make-instance function.  Here is how it could be used:
+
+        (setq my-ship (make-instance 'ship))
+
+     This returns an object whose printed representation is #<SHIP 13731210>.  (Of course, the
+value of the magic number will vary; it is just the object address in octal.) The argument to
+make-instance is the name of the flavor to be instantiated.  Additional arguments, not used here, are
+init options, that is, commands to the flavor of which we are making an instance, selecting optional
+features.  This will be discussed more in a moment.
+
+     Examination of the flavor we have defined shows that it is quite useless as it stands, since
+there is no way to set any of the parameters.  We can fix this up easily by putting the
+:settable-instance-variables option into the defflavor form.  This option tells defflavor to generate
+methods for operation :set for first argument :x-position, :y-position, and so on; each such method
+takes one additional argument and sets the corresponding instance variable to that value.  It also
+generates methods for the operations :set-x-position, :set-y-position and so on; each of these takes
+one argument and sets the corresponding variable.
+
+     Another option we can add to the defflavor is :inittable-instance-variables, which allows us to
+initialize the values of the instance variables when an instance is first created.
+:inittable-instance-variables does not create any methods; instead, it makes initialization keywords
+named :x-position, :y-position, etc., that can be used as init-option arguments to make-instance to
+initialize the corresponding instance variables.  The list of init options is sometimes called the
+init-plist because it is like a property list.
+
+     Here is the improved defflavor:  
+
+        (defflavor ship (x-position y-position
+                         x-velocity y-velocity mass) 
+                        ()
+          :gettable-instance-variables
+          :settable-instance-variables
+          :inittable-instance-variables)
+
+     All we have to do is evaluate this new defflavor, and the existing flavor definition is updated and
+now includes the new methods and initialization options.  In fact, the instance we generated a while
+ago now accepts the new operations! We can set the mass of the ship we created by evaluating 
+
+        (send my-ship :set-mass 3.0)
+or
+        (send my-ship :set :mass 3.0)
+
+     and the mass instance variable of my-ship is properly set to 3.0.  Whether you use :set-mass or
+the general operation :set is a matter of style; :set is used by the expansion of (setf (send my-ship
+:mass) 3.0).
+
+     If you want to play around with flavors, it is useful to know that describe of an instance tells
+you the flavor of the instance and the values of its instance variables.  If we were to evaluate
+(describe my-ship) at this point, the following would be printed:
+
+        #<SHIP 13731210>, an object of flavor SHIP,
+         has instance variable values:
+                X-POSITION:         void
+                Y-POSITION:         void
+                X-VELOCITY:         void
+                Y-VELOCITY:         void
+                MASS:               3.0
+
+     Now that the instance variables are inittable, we can create another ship and initialize some of
+the instance variables using the init-plist.  Let's do that and describe the result:
+
+        (setq her-ship (make-instance 'ship :x-position 0.0
+                                            :y-position 2.0
+                                            :mass 3.5))
+                        => #<SHIP 13756521>
+
+
+        (describe her-ship)
+        #<SHIP 13756521>, an object of flavor SHIP,
+         has instance variable values:
+                X-POSITION:         0.0
+                Y-POSITION:         2.0
+                X-VELOCITY:         void
+                Y-VELOCITY:         void
+                MASS:               3.5
+
+     A flavor can also establish default initial values for instance variables.  These default values are
+used when a new instance is created if the values are not initialized any other way.  The syntax for
+specifying a default initial value is to replace the name of the instance variable by a list, whose first
+element is the name and whose second is a form to evaluate to produce the default initial value.  For
+example:
+
+        (defvar *default-x-velocity* 2.0)
+        (defvar *default-y-velocity* 3.0)
+
+        (defflavor ship ((x-position 0.0)
+                         (y-position 0.0)
+                         (x-velocity *default-x-velocity*)
+                         (y-velocity *default-y-velocity*)
+                         mass) 
+                        ()
+          :gettable-instance-variables
+          :settable-instance-variables
+          :inittable-instance-variables)
+
+        (setq another-ship (make-instance 'ship :x-position 3.4))
+         => #<SHIP 14563643>
+
+        (describe another-ship)
+        #<SHIP 14563643>, an object of flavor SHIP,
+         has instance variable values:
+                X-POSITION:         3.4
+                Y-POSITION:         0.0
+                X-VELOCITY:         2.0
+                Y-VELOCITY:         3.0
+                MASS:               void
+
+     x-position was initialized explicitly, so the default was ignored.  y-position was initialized from the
+default value, which was 0.0.  The two velocity instance variables were initialized from their default
+values, which came from two global variables.  mass was not explicitly initialized and did not have a
+default initialization, so it was left void.
+
+     There are many other options that can be used in defflavor, and the init options can be used
+more flexibly than just to initialize instance variables; full details are given later in this chapter.  But
+even with the small set of features we have seen so far, it is easy to write object-oriented
+programs.
+
+        (setq another-ship (make-instance 'ship :x-position 3.4))
+         => #<SHIP 14563643>
+
+        (describe another-ship)
+        #<SHIP 14563643>, an object of flavor SHIP,
+         has instance variable values:
+                X-POSITION:         3.4
+                Y-POSITION:         0.0
+                X-VELOCITY:         2.0
+                Y-VELOCITY:         3.0
+                MASS:               void
+
+     x-position was initialized explicitly, so the default was ignored.  y-position was initialized from the
+default value, which was 0.0.  The two velocity instance variables were initialized from their default
+values, which came from two global variables.  mass was not explicitly initialized and did not have a
+default initialization, so it was left void.
+
+     There are many other options that can be used in defflavor, and the init options can be used
+more flexibly than just to initialize instance variables; full details are given later in this chapter.  But
+even with the small set of features we have seen so far, it is easy to write object-oriented
+programs.
+
+seen so far, it is easy to write object-oriented
+programs.
+
