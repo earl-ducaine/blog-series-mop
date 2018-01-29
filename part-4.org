@@ -1,0 +1,126 @@
+
+
+
+
+
+* Implementing flavors using using MOP
+
+** Zeta Lisp Flavor system
+  
+   Flavors was MIT's Zeta Lisp (Lisp Machine Lisp) object system and
+   it along with lexical scoping were the major inovations of the
+   language over previous forms of lisp run in the AI lab.  The flavor
+   system was apparaently patterned on SmallTalk's object system,
+   i.e. it was message passing, but differed from in in that
+   multiple-inheritance was supported and heavily used in system
+   programming the Lisp Machine.  Considerable effort went into making
+   flavors efficient, including the fact that it was compilable in the
+   same way all other Lisp code could be compiled.  Very little in the
+   way of the reflective capabilities of SmallTalk was supported.
+
+*** Some examples
+    #+BEGIN_SRC lisp :tangle flavor-examples.lisp
+      (defflavor ship ((x-position 0.0)
+		       (y-position 0.0)
+		       (x-velocity *default-x-velocity*)
+		       (y-velocity *default-y-velocity*)
+		       mass) 
+	()
+	:gettable-instance-variables
+	:settable-instance-variables
+	:inittable-instance-variables)
+
+      (defmethod (ship :speed) ()
+	(sqrt (+ (^ x-velocity 2)
+		 (^ y-velocity 2))))
+
+      (defmethod (ship :direction) ()
+	(atan2 y-velocity x-velocity))
+    #+END_SRC
+
+    #+BEGIN_SRC lisp :tangle flavor-examples.el
+      (defparameter my-ship (make-instance 'ship))
+
+      (send my-ship :set :x-position 15)
+      (send my-ship :set :y-position 20)
+      (send my-ship :set :x-velocity 3.0)
+      (send my-ship :set :y-velocity 6.0)
+      (send my-ship :set :mass 3.0)
+
+      ;; and to review some of the values
+      (send my-ship :x-position)
+      (send my-ship :mass 3.0)
+    #+END_SRC
+
+
+
+** Overview: our implementation of flavors
+
+
+   
+*** defflavor is actually a speciallized version of defclass
+
+    #+BEGIN_SRC lisp :tangle flavor.lisp
+      (defmacro defflavor (name instance-variables component-flavors &rest options)
+	"instance-variables can be symbols, or list of symbol and initialization, e.g.
+
+	 (defflavor ship (x-velocity y-velocity
+			 (x-position 0.0)
+			 (y-position 0.0)))
+
+	 component-flavors are inheritted flavors (i.e. super-classes)
+	 searched from left to right for methods, and contribute their
+	 instance variables.
+
+	 options are:
+	  (:accessor-prefix sym)
+	  ;;(:default-handler function)
+	  ;;(:default-init-plist k1 v1 k2 v2...)
+	  (:documentation <args>...)
+	  ;;(:gettable-instance-variables v1 v2...) 
+	  ;;(:included-flavors f1 f2...)
+	  ;;;(:init-keywords k1 k2...)
+	  ;;;(:inittable-instance-variables v1 v2...)
+	  ;;;(:method-combination (type order operation1 operation2...)...)
+	  ;;;(:method-order m1 m2...)
+	  (:ordered-instance-variables v1 v2...)
+	  (:outside-accessible-instance-variables v1 v2...)
+	  ;;;;(:required-flavors f1 f2...)
+	  ;;;(:required-instance-variables v1 v2...)
+	  ;;(:required-methods m1 m2...)
+	  ;;(:settable-instance-variables v1 v2...)
+	  ;;;(:special-instance-variables <variables>)
+	  ;;:abstract-flavor 
+	  ;;:alias-flavor
+	  ;;:no-vanilla-flavor
+
+	 Many are rare or obsolete."
+	(let ((copied-options (copy-list options)))
+	  `(progn
+	     (defflavor-internal ',name ',instance-variables ',component-flavors ',copied-options)
+	     (compose-automatic-methods (compilation-flavor ',name))
+	     (compose-automatic-methods (get ',name 'flavor)))))
+
+      (defun convert-instance-variable-to-slot (instance-variable-spec)
+	(cond 
+	  ((null instance-variable)
+	   nil)
+	  ((consp instance-variable)
+	   (unless (<= (length instance-variable) 2)
+	     (error "Malformed instance varibale: ~a~%" instance-variable))
+	   (list (car instance-variable) :init-form (cadr instance-variable)))
+	  ((atom instance-variable)
+	   (list instance-variable))
+	  (t
+	   (error "Malformed instance varibale: ~a~%" instance-variable))))
+
+      (defun defflavor-internal (name instance-variables component-flavors copied-options)
+	(let ((direct-superclasses (map 'list (lambda (component-flavor)
+						(find-class component-flavor))
+					component-flavor))
+	      (direct-slots (map 'list #'convert-instance-variable-to-slot
+				 instance-variables)))
+	  (mop:ensure-class name 
+			:direct-superclasses direct-superclasses
+			:direct-slots direct-slots)))
+    #+END_SRC
